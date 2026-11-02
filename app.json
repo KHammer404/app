@@ -1,8 +1,8 @@
 {
   "expo": {
-    "name": "Samkim-keepr",
-    "slug": "Samkim-keepr",
-    "version": "1.0.0",
+    "name": "삼킴지킴이",
+    "slug": "samkim-keepr",
+    "version": "0.2.0",
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
@@ -11,7 +11,7 @@
     },
     "android": {
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#278F9C",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -20,6 +20,25 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "얼굴과 목 위치를 확인하기 위해 카메라를 사용합니다.",
+          "recordAudioAndroid": false
+        }
+      ],
+      [
+        "expo-audio",
+        {
+          "microphonePermission": "발성 확인을 위해 2초 동안 목소리를 녹음합니다.",
+          "enableBackgroundPlayback": false,
+          "enableBackgroundRecording": false
+        }
+      ],
+      "expo-router"
+    ],
+    "scheme": "samkim-keepr"
   }
 }
