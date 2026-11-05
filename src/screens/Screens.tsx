@@ -1,5 +1,5 @@
 import React, { useRef, useState } from "react";
-import { Pressable, TextInput, View } from "react-native";
+import { Image, Pressable, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { CameraView } from "expo-camera";
 import { Page } from "../components/AppFrame";
@@ -113,6 +113,9 @@ export function HomeScreen() {
         icon="activity"
         onPress={() => router.replace("/prepare")}
       />
+      <Pressable accessibilityRole="button" onPress={() => router.replace("/trend")}>
+        <T style={[s.caption, { marginTop: 12 }]}>변화 추이 보기 ›</T>
+      </Pressable>
       <View style={[s.between, s.sectionHeader]}>
         <T style={s.heading}>최근 식사 기록</T>
         <Pressable
@@ -325,6 +328,7 @@ export function MonitorScreen() {
     (trigger, confidence) => {
       void app.markSwallow(trigger, confidence);
     },
+    app.settings.periodicSeconds * 1000,
   );
   return (
     <Page>
@@ -455,6 +459,19 @@ export function ReportScreen() {
         {record.skipped ? ` 건너뜀 ${record.skipped}회.` : ""}
         {record.noResponse ? ` 미응답 ${record.noResponse}회.` : ""}
       </T>
+      {!!record.spectrogramUrls?.length && (
+        <View style={{ marginTop: 16, gap: 8 }}>
+          <T style={s.heading}>스펙트로그램</T>
+          {record.spectrogramUrls.map((url) => (
+            <Image
+              key={url}
+              accessibilityLabel="발성 스펙트로그램"
+              source={{ uri: url }}
+              style={{ width: "100%", height: 120, backgroundColor: "#111" }}
+            />
+          ))}
+        </View>
+      )}
       <View style={s.analysisCard}>
         <View style={s.between}>
           <T style={s.body}>발성 녹음 완료</T>
@@ -493,12 +510,7 @@ export function MoreScreen() {
       <Setting
         icon="bell"
         label="알림 설정"
-        onPress={() =>
-          app.notify(
-            "알림 설정",
-            "식사 모니터링 중 주의 신호와 발성 안내를 표시합니다. 초록 화면은 흡인이 없다는 뜻이 아니에요.",
-          )
-        }
+        onPress={() => router.replace("/caregiver")}
       />
       <Setting
         icon="video"

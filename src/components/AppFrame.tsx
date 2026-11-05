@@ -27,7 +27,7 @@ export default function AppFrame() {
       ? "home"
       : ["/prepare", "/camera", "/monitor"].includes(path)
         ? "prepare"
-        : ["/report", "/reports"].includes(path)
+        : ["/report", "/reports", "/trend"].includes(path)
           ? "reports"
           : "more";
   return (
@@ -126,14 +126,16 @@ function SessionModal() {
             disabled={app.busy || app.recording}
             onPress={() => void app.startVoice()}
           />
-          <Pressable
-            accessibilityRole="button"
-            disabled={app.recording || app.busy}
-            onPress={() => void app.skipVoice()}
-            style={{ alignSelf: "center", padding: 8 }}
-          >
-            <T style={s.link}>지금은 건너뛰기</T>
-          </Pressable>
+          {app.settings.allowSkip && (
+            <Pressable
+              accessibilityRole="button"
+              disabled={app.recording || app.busy}
+              onPress={() => void app.skipVoice()}
+              style={{ alignSelf: "center", padding: 8 }}
+            >
+              <T style={s.link}>지금은 건너뛰기</T>
+            </Pressable>
+          )}
         </>
       )}
       {app.popup === "analyzing" && (

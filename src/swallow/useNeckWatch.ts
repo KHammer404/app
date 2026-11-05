@@ -34,6 +34,7 @@ export function useNeckWatch(
   cameraRef: { current: Shutter | null },
   enabled: boolean,
   onSwallow: (trigger: "auto" | "periodic", confidence?: number) => void,
+  periodicMs = 20000,
 ) {
   const [hint, setHint] = useState<string | null>(null);
   const watch = useRef(new SwallowWatch());
@@ -75,7 +76,7 @@ export function useNeckWatch(
           if (result.kind === "lost") {
             if (!lostAt) lostAt = Date.now();
             setHint("목이 보이지 않아요");
-            if (Date.now() - lostAt > 8000 && Date.now() - lastPeriodic > 20000) {
+            if (Date.now() - lostAt > 8000 && Date.now() - lastPeriodic > periodicMs) {
               lastPeriodic = Date.now();
               onSwallowRef.current("periodic");
             }
@@ -95,6 +96,6 @@ export function useNeckWatch(
       stopped = true;
       clearInterval(timer);
     };
-  }, [cameraRef, enabled]);
+  }, [cameraRef, enabled, periodicMs]);
   return enabled ? hint : null;
 }

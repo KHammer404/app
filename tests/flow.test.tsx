@@ -9,6 +9,8 @@ import {
 } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Screens from "../src/screens/Screens";
+import { CaregiverScreen } from "../src/screens/CaregiverScreen";
+import { TrendScreen } from "../src/screens/TrendScreen";
 
 const mocks = vi.hoisted(() => ({
   storage: new Map<string, string>(),
@@ -54,6 +56,8 @@ vi.mock("expo-router", () => {
           "/monitor": Screens.MonitorScreen,
           "/reports": Screens.ReportsScreen,
           "/report": Screens.ReportScreen,
+          "/trend": TrendScreen,
+          "/caregiver": CaregiverScreen,
           "/more": Screens.MoreScreen,
         } as Record<string, React.ComponentType>
       )[path];
@@ -207,8 +211,10 @@ beforeEach(() => {
     if (sessionMatch && method === "POST" && sessionMatch[2] === "swallow-events") {
       const row = sessions.get(sessionMatch[1]);
       const id = `event-${(row?.events.length ?? 0) + 1}`;
+      const payload = typeof init?.body === "string" ? JSON.parse(init.body) : {};
+      const prompt = payload.request_voice !== false;
       row?.events.push({ id, state: null, at: new Date().toISOString() });
-      return reply({ id, prompt: true, merged: false, phase: "AWAITING_VOICE" }, 201);
+      return reply({ id, prompt, merged: false, phase: prompt ? "AWAITING_VOICE" : "TRACKING" }, 201);
     }
     if (sessionMatch && method === "POST" && sessionMatch[2] === "end") return reply({ id: sessionMatch[1] });
     if (sessionMatch && method === "GET" && sessionMatch[2] === "report") {
@@ -258,6 +264,12 @@ beforeEach(() => {
           no_change_count: 0,
         })),
       );
+    }
+    if (method === "GET" && path.startsWith("/reports/trend")) {
+      return reply({
+        period: "day",
+        points: [{ label: "2026-11-02", swallow_count: 2, no_change_ratio: 1, caution_count: 0 }],
+      });
     }
     if (method === "GET" && path.startsWith("/home/summary")) {
       return reply({ meal_count: sessions.size, swallow_count: 0, caution_count: 0, recent: [] });
@@ -587,5 +599,14 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await click("삼킴지킴이 시작하기");
     expect(mocks.storage.get("@samkim/profile")).toBe("새사용자");
     expect(screen.getByText("안녕하세요, 새사용자 님")).toBeTruthy();
+  });
+  it("추이 화면과 보호자 설정을 저장한다", async () => {
+    await mount();
+    await click("변화 추이 보기 ›");
+    expect(screen.getByText(/변화 없음 100%/)).toBeTruthy();
+    await tab("더보기");
+    await click("알림 설정");
+    await click("2회마다");
+    expect(JSON.parse(mocks.storage.get("@samkim/caregiver")!).everyNth).toBe(2);
   });
 });

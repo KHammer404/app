@@ -152,13 +152,14 @@ export const api = {
     });
     return request<BaselineResult>(`/sessions/${id}/baseline`, { method: "POST", body });
   },
-  swallow(id: string, trigger: "auto" | "manual" | "periodic", confidence?: number) {
+  swallow(id: string, trigger: "auto" | "manual" | "periodic", confidence?: number, requestVoice = true) {
     return request<SwallowEvent>(`/sessions/${id}/swallow-events`, {
       method: "POST",
       body: JSON.stringify({
         trigger,
         detected_at: new Date().toISOString(),
         camera_confidence: confidence ?? null,
+        request_voice: requestVoice,
       }),
     });
   },

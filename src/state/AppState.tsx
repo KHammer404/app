@@ -12,6 +12,13 @@ import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions } from "expo-camera";
 
 import { api, assetUrl, REASON_TEXT, SLOT_MEAL, socketUrl, type SessionReport } from "../api/client";
+import {
+  CAREGIVER_KEY,
+  DEFAULT_CAREGIVER,
+  parseCaregiver,
+  voiceRequest,
+  type CaregiverSettings,
+} from "../settings/caregiver";
 import { ensureMic, useWavCapture } from "../audio/recordWav";
 import { mealForTime, type Meal } from "../utils/mealTime";
 import type { AspirationEvent } from "../utils/mealTimeline";
@@ -99,10 +106,14 @@ function reportToRecord(report: SessionReport): MealRecord {
       id: event.id,
       offsetMs: Math.max(0, new Date(event.detected_at).getTime() - start),
     })),
-    spectrogramUrls: report.events
-      .flatMap((event) => [event.baseline_spectrogram_url, event.spectrogram_url])
-      .map((path) => assetUrl(path))
-      .filter((url): url is string => Boolean(url)),
+    spectrogramUrls: [
+      ...new Set(
+        report.events
+          .flatMap((event) => [event.baseline_spectrogram_url, event.spectrogram_url])
+          .map((path) => assetUrl(path))
+          .filter((url): url is string => Boolean(url)),
+      ),
+    ],
   };
 }
 
@@ -135,7 +146,13 @@ function useAppController() {
       body: string;
       action?: "delete" | "name" | "text";
     } | null>(null),
-    [largeText, setLargeText] = useState(false);
+    [largeText, setLargeText] = useState(false),
+    [settings, setSettings] = useState<CaregiverSettings>(DEFAULT_CAREGIVER);
+  const settingsRef = useRef(settings);
+  const autoSeen = useRef(0);
+  useEffect(() => {
+    settingsRef.current = settings;
+  }, [settings]);
   const started = useRef(0),
     recordingRef = useRef(false),
     voiceBusy = useRef(false),
@@ -189,14 +206,15 @@ function useAppController() {
       try {
         if ((await AsyncStorage.getItem(FRESH_START)) !== "done") {
           await Promise.all(
-            [PROFILE, RECORDS, "@samkim/largeText"].map((key) => AsyncStorage.removeItem(key)),
+            [PROFILE, RECORDS, "@samkim/largeText", CAREGIVER_KEY].map((key) => AsyncStorage.removeItem(key)),
           );
           await AsyncStorage.setItem(FRESH_START, "done");
         }
-        const [profile, history, textSize] = await Promise.all([
+        const [profile, history, textSize, caregiver] = await Promise.all([
           AsyncStorage.getItem(PROFILE),
           AsyncStorage.getItem(RECORDS),
           AsyncStorage.getItem("@samkim/largeText"),
+          AsyncStorage.getItem(CAREGIVER_KEY),
         ]);
         if (profile) setName(profile);
         if (history) {
@@ -204,6 +222,7 @@ function useAppController() {
           if (Array.isArray(data)) setRecords(data.filter(validRecord));
         }
         setLargeText(textSize === "true");
+        setSettings(parseCaregiver(caregiver));
         await refreshRecords();
       } catch {
         notify(
@@ -248,7 +267,8 @@ function useAppController() {
       setAlerts((value) => value + 1);
       setVoices((value) => value + 1);
       setPopup("caution");
-      if (typeof Vibration.vibrate === "function") Vibration.vibrate([0, 280, 120, 280]);
+      if (settingsRef.current.haptic && typeof Vibration.vibrate === "function")
+        Vibration.vibrate([0, 280, 120, 280]);
     } else if (result.state === "unanalyzable") {
       modeRef.current = "voice";
       setPopup("unanalyzable");
@@ -427,6 +447,7 @@ function useAppController() {
   async function begin() {
     if (!cameraPermission?.granted || !mic || !cameraReady || !checks.every(Boolean) || voiceBusy.current)
       return;
+    autoSeen.current = 0;
     voiceBusy.current = true;
     setBusy(true);
     try {
@@ -478,8 +499,10 @@ function useAppController() {
   async function markSwallow(trigger: "auto" | "manual" | "periodic" = "manual", confidence?: number) {
     if (!sessionRef.current || popup === "baseline" || popup === "analyzing" || popup === "caution") return;
     if (recordingRef.current) return;
+    const choice = voiceRequest(settingsRef.current, trigger, confidence, autoSeen.current);
     try {
-      const event = await api.swallow(sessionRef.current, trigger, confidence);
+      const event = await api.swallow(sessionRef.current, trigger, confidence, choice.request);
+      if (!event.merged) autoSeen.current = choice.autoCount;
       setSwallows((value) => value + (event.merged ? 0 : 1));
       if (!event.prompt) return;
       eventRef.current = event.id;
@@ -577,6 +600,14 @@ function useAppController() {
       notify("삭제 실패", "저장 공간 접근 권한을 확인해 주세요.");
     }
   }
+  async function saveSettings(next: CaregiverSettings) {
+    setSettings(next);
+    try {
+      await AsyncStorage.setItem(CAREGIVER_KEY, JSON.stringify(next));
+    } catch {
+      notify("설정 저장 실패", "잠시 후 다시 시도해 주세요.");
+    }
+  }
   async function changeTextSize(value: boolean) {
     try {
       await AsyncStorage.setItem("@samkim/largeText", String(value));
@@ -615,6 +646,7 @@ function useAppController() {
     info,
     setInfo,
     largeText,
+    settings,
     notify,
     saveName,
     permissions,
@@ -625,6 +657,7 @@ function useAppController() {
     resolveCaution,
     finish,
     deleteRecords,
+    saveSettings,
     changeTextSize,
   };
 }
