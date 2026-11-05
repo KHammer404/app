@@ -1,10 +1,11 @@
-import React, { useState } from "react";
+import React, { useRef, useState } from "react";
 import { Pressable, TextInput, View } from "react-native";
 import { router, useLocalSearchParams } from "expo-router";
 import { CameraView } from "expo-camera";
 import { Page } from "../components/AppFrame";
 import MotionPressable from "../components/MotionPressable";
 import AspirationTimeline from "../components/AspirationTimeline";
+import { useNeckWatch } from "../swallow/useNeckWatch";
 import { timelineDuration } from "../utils/mealTimeline";
 import { Button, Check, Empty, Icon, IconName, T } from "../components/UI";
 import { GRAY, RED, s, TEAL } from "../components/theme";
@@ -246,12 +247,17 @@ function Permission({
     </View>
   );
 }
-function Preview() {
+function Preview({
+  shutter,
+}: {
+  shutter?: { current: { takePicture: (options: object) => Promise<{ uri?: string; base64?: string }> } | null };
+}) {
   const app = useApp();
   return (
     <View style={s.camera}>
       {app.cameraPermission?.granted && app.active ? (
         <CameraView
+          ref={shutter as never}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           facing="front"
           onCameraReady={() => app.setCameraReady(true)}
@@ -312,6 +318,14 @@ export function CameraScreen() {
 }
 export function MonitorScreen() {
   const app = useApp();
+  const shutter = useRef(null);
+  const hint = useNeckWatch(
+    shutter,
+    app.running && app.popup == null && !app.recording,
+    (trigger, confidence) => {
+      void app.markSwallow(trigger, confidence);
+    },
+  );
   return (
     <Page>
       <View style={[s.between, { marginBottom: 25 }]}>
@@ -320,9 +334,9 @@ export function MonitorScreen() {
         </T>
         <T style={s.timer}>{duration(app.seconds)}</T>
       </View>
-      <Preview />
+      <Preview shutter={shutter} />
       <T style={s.cameraHelp}>
-        목이 보이면 삼킴을 찾아요. 놓쳤으면 아래 버튼을 눌러 주세요.
+        {hint ?? "목이 보이면 삼킴을 찾아요. 놓쳤으면 아래 버튼을 눌러 주세요."}
       </T>
       <View style={{ gap: 6, paddingHorizontal: 8 }}>
         <T style={s.body}>· 카메라 영상은 이 기기를 떠나지 않아요</T>
