@@ -36,7 +36,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
     <View style={styles.section}>
       <View style={styles.headingRow}>
         <T accessibilityRole="header" style={styles.heading}>
-          흡인 신호 분석 결과
+          주의 신호 분석 결과
         </T>
         <View style={[styles.count, record.alerts === 0 && styles.noAlerts]}>
           <T style={[styles.countText, record.alerts === 0 && { color: TEAL }]}>
@@ -65,7 +65,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
               style={[styles.markerLabel, { left: labelLeft }]}
             >
               <T numberOfLines={1} style={styles.markerLabelText}>
-                흡인 알림
+                주의 신호
               </T>
             </View>
           )}
@@ -73,7 +73,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
             <MotionPressable
               key={event.id}
               accessibilityRole="button"
-              accessibilityLabel={`흡인 알림 ${index + 1}, ${timelineClock(new Date(start.getTime() + event.offsetMs))}`}
+              accessibilityLabel={`주의 신호 ${index + 1}, ${timelineClock(new Date(start.getTime() + event.offsetMs))}`}
               accessibilityState={{ selected: selected?.id === event.id }}
               aria-selected={selected?.id === event.id}
               onPress={() => setSelectedId(event.id)}
@@ -114,7 +114,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
               <Icon name="alert-circle" color={RED} size={22} />
             </View>
             <View style={{ flex: 1, gap: 4 }}>
-              <T style={styles.detailTitle}>흡인 알림</T>
+              <T style={styles.detailTitle}>주의 신호</T>
               <T style={styles.detailSubtitle}>
                 식사 시작 후 {elapsedLabel(selected.offsetMs)}
               </T>
@@ -129,7 +129,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
               size={18}
             />
             <T style={styles.emptyText}>
-              {record.alerts > 0 ? "알림 시각 미기록" : "흡인 알림 없음"}
+              {record.alerts > 0 ? "알림 시각 미기록" : "주의 신호 없음"}
             </T>
           </View>
         )}

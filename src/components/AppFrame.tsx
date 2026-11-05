@@ -45,7 +45,7 @@ export default function AppFrame() {
                 app.notify(
                   "알림",
                   app.alerts > 0
-                    ? "흡인 알림이 1건 있습니다."
+                    ? "주의 신호가 있어요. 식사 기록을 확인해 주세요."
                     : "새 알림이 없습니다.",
                 )
               }
@@ -68,35 +68,52 @@ export default function AppFrame() {
 }
 function SessionModal() {
   const app = useApp();
-  const close = () => {
-    if (app.recording || app.busy || app.popup === "processing") return;
-    app.setPopup(app.popup === "alert" ? "voice" : null);
+  const voicePrompt =
+    app.popup === "voice" || app.popup === "recheck" || app.popup === "unanalyzable";
+  const dismiss = () => {
+    if (app.recording || app.busy || app.popup === "analyzing" || app.popup === "baseline") return;
+    if (app.popup === "caution") return;
+    app.setPopup(null);
   };
   return (
     <AnimatedDialog
       visible={!!app.popup}
-      onRequestClose={close}
-      overlayColor={app.popup === "alert" ? "#E9484999" : "#0009"}
+      onRequestClose={dismiss}
+      overlayColor={app.popup === "caution" ? "#E9484999" : "#0009"}
     >
-      {app.popup === "alert" && (
+      {app.popup === "baseline" && (
         <>
-          <View style={[s.statusCircle, { backgroundColor: RED }]}>
-            <Icon name="alert-triangle" color="white" size={38} />
-          </View>
-          <T style={[s.modalTitle, { color: RED }]}>흡인 알림</T>
+          <T style={s.modalTitle}>기준 음성 {app.baselineStep}/3</T>
+          <T style={[s.caption, s.center]}>
+            입안을 비운 뒤 2초 동안 아~ 소리를 내주세요.
+          </T>
+          {app.learning && (
+            <T style={[s.caption, s.center]}>기준을 학습 중이에요.</T>
+          )}
+          <RecordingWaveform
+            recording={app.recording}
+            seconds={app.voiceSeconds}
+            durationMs={VOICE_MS}
+          />
           <Button
-            title="발성 안내"
-            danger
-            onPress={() => app.setPopup("voice")}
+            title={app.recording ? "녹음 중…" : "2초 발성 녹음 시작"}
+            disabled={app.busy || app.recording}
+            onPress={() => void app.startVoice()}
           />
         </>
       )}
-      {app.popup === "voice" && (
+      {voicePrompt && (
         <>
-          <T style={s.modalTitle}>2초 동안 “아~” 소리를 내주세요</T>
-          <T style={[s.caption, s.center]}>
-            녹음 버튼을 누른 뒤 편안하게 소리를 내주세요.
+          <T style={s.modalTitle}>
+            {app.popup === "recheck"
+              ? "평소와 조금 달라요. 가볍게 기침하고 아~를 한 번 더 해볼까요?"
+              : app.popup === "unanalyzable"
+                ? "소리를 잘 듣지 못했어요. 다시 해볼까요?"
+                : "입 안의 음식을 모두 삼킨 뒤에, 2초 동안 아~ 해주세요"}
           </T>
+          {!!app.reasonText && (
+            <T style={[s.caption, s.center]}>{app.reasonText}</T>
+          )}
           <RecordingWaveform
             recording={app.recording}
             seconds={app.voiceSeconds}
@@ -104,11 +121,7 @@ function SessionModal() {
           />
           <Button
             title={
-              app.recording
-                ? "녹음 중…"
-                : app.busy
-                  ? "마이크 준비 중…"
-                  : "2초 발성 녹음 시작"
+              app.recording ? "녹음 중…" : app.busy ? "마이크 준비 중…" : "2초 발성 녹음 시작"
             }
             disabled={app.busy || app.recording}
             onPress={() => void app.startVoice()}
@@ -116,26 +129,43 @@ function SessionModal() {
           <Pressable
             accessibilityRole="button"
             disabled={app.recording || app.busy}
-            onPress={() => app.setPopup(null)}
+            onPress={() => void app.skipVoice()}
             style={{ alignSelf: "center", padding: 8 }}
           >
             <T style={s.link}>지금은 건너뛰기</T>
           </Pressable>
         </>
       )}
-      {app.popup === "processing" && (
+      {app.popup === "analyzing" && (
         <View style={{ alignItems: "center", paddingVertical: 50, gap: 25 }}>
           <ActivityIndicator size="large" color={TEAL} />
           <T style={[s.bold, { color: TEAL }]}>녹음 처리 중…</T>
         </View>
       )}
-      {app.popup === "done" && (
+      {app.popup === "no_change" && (
         <>
           <View style={s.statusCircle}>
             <Icon name="check" color="white" size={45} />
           </View>
-          <T style={[s.modalTitle, { color: TEAL }]}>녹음 완료</T>
+          <T style={[s.modalTitle, { color: TEAL }]}>
+            이번 발성에서는 평소와 큰 차이가 없었어요.
+          </T>
+          <T style={[s.caption, s.center]}>흡인이 없다는 뜻은 아니에요.</T>
+          {app.learning && <T style={[s.caption, s.center]}>기준을 학습 중이에요.</T>}
           <Button title="확인" onPress={() => app.setPopup(null)} />
+        </>
+      )}
+      {app.popup === "caution" && (
+        <>
+          <View style={[s.statusCircle, { backgroundColor: RED }]}>
+            <Icon name="alert-triangle" color="white" size={38} />
+          </View>
+          <T style={[s.modalTitle, { color: RED }]}>평소와 다른 목소리가 이어져요.</T>
+          <T style={[s.caption, s.center]}>
+            숨을 크게 들이쉬고 강하게 기침하세요. 호흡이 힘들거나 기침이 멈추지 않으면 119에
+            연락하세요. 앱은 응급 대응을 대신하지 않아요.
+          </T>
+          <Button title="처치를 완료했어요" danger onPress={() => void app.resolveCaution()} />
         </>
       )}
     </AnimatedDialog>

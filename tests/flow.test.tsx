@@ -74,6 +74,15 @@ vi.mock("expo-camera", () => ({
 vi.mock("expo-audio", () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
   useAudioRecorder: () => mocks.recorder,
+  useAudioStream: () => ({
+    isStreaming: false,
+    stream: {
+      start: async () => {},
+      startFileRecordingAsync: async () => ({ uri: "file://clip.wav" }),
+      stopFileRecordingAsync: async () => ({ uri: "file://clip.wav" }),
+      stop: () => {},
+    },
+  }),
   AudioModule: {
     requestRecordingPermissionsAsync: async () => ({
       granted: mocks.microphoneGranted,
@@ -130,6 +139,10 @@ async function mount() {
     render(<App />);
   });
 }
+async function recordClip() {
+  await click("2초 발성 녹음 시작");
+  await advance(2000);
+}
 async function start() {
   await click("식사 모니터링 시작하기");
   await click("카메라/마이크 권한 설정하러 가기");
@@ -138,6 +151,9 @@ async function start() {
   await check("목 부위가 전부 잘 보여요");
   await check("조명이 적절해요");
   await click("식사 모니터링 시작하기");
+  await recordClip();
+  await recordClip();
+  await recordClip();
 }
 async function finish() {
   await click("식사 모니터링 종료하기");
@@ -152,6 +168,119 @@ beforeEach(() => {
   mocks.cameraGranted = true;
   mocks.microphoneGranted = true;
   vi.clearAllMocks();
+  const sessions = new Map<string, { id: string; meal: string; started: string; events: { id: string; state: string | null; at: string }[] }>();
+  vi.stubGlobal("WebSocket", class {
+    onmessage: ((event: { data: string }) => void) | null = null;
+    close() {}
+  });
+  vi.stubGlobal("fetch", async (input: string, init?: { method?: string; body?: string }) => {
+    const path = String(input).replace(/^https?:\/\/[^/]+/, "");
+    const method = init?.method ?? "GET";
+    const reply = (data: unknown, status = 200) => ({
+      ok: status < 400,
+      status,
+      headers: { get: () => "application/json" },
+      json: async () => data,
+    });
+    if (method === "POST" && path === "/me/consents") return reply({ id: "consent" }, 201);
+    if (method === "DELETE" && path === "/me/data") {
+      sessions.clear();
+      return reply({ deleted: true });
+    }
+    if (method === "POST" && path === "/sessions") {
+      const id = `meal-${sessions.size + 1}`;
+      const meal = JSON.parse(init?.body || "{}").meal ?? "lunch";
+      sessions.set(id, { id, meal, started: new Date().toISOString(), events: [] });
+      return reply({ id, phase: "TRACKING", meal, started_at: sessions.get(id)!.started }, 201);
+    }
+    const sessionMatch = path.match(/^\/sessions\/([^/]+)(?:\/(.*))?$/);
+    if (sessionMatch && method === "POST" && sessionMatch[2] === "baseline") {
+      return reply({
+        stable: true,
+        passed_count: 3,
+        reason_codes: [],
+        warnings: [],
+        profile_learning: true,
+        quality_flag: "ok",
+      });
+    }
+    if (sessionMatch && method === "POST" && sessionMatch[2] === "swallow-events") {
+      const row = sessions.get(sessionMatch[1]);
+      const id = `event-${(row?.events.length ?? 0) + 1}`;
+      row?.events.push({ id, state: null, at: new Date().toISOString() });
+      return reply({ id, prompt: true, merged: false, phase: "AWAITING_VOICE" }, 201);
+    }
+    if (sessionMatch && method === "POST" && sessionMatch[2] === "end") return reply({ id: sessionMatch[1] });
+    if (sessionMatch && method === "GET" && sessionMatch[2] === "report") {
+      const row = sessions.get(sessionMatch[1]);
+      const events = row?.events ?? [];
+      return reply({
+        session: {
+          id: sessionMatch[1],
+          meal: row?.meal ?? "lunch",
+          phase: "TRACKING",
+          started_at: row?.started ?? new Date().toISOString(),
+          ended_at: new Date().toISOString(),
+          duration_seconds: row ? Math.max(0, (Date.now() - Date.parse(row.started)) / 1000) : 0,
+          swallow_count: events.length,
+          caution_count: events.filter((event) => event.state === "caution").length,
+          no_change_count: events.filter((event) => event.state === "no_change").length,
+        },
+        baseline_quality_flag: "ok",
+        model_version: "mel_pool-0.1.0",
+        unanalyzable_count: 0,
+        skipped_count: events.filter((event) => event.state === "skipped").length,
+        no_response_count: 0,
+        events: events.map((event) => ({
+          id: event.id,
+          detected_at: event.at,
+          trigger: "manual",
+          state: event.state,
+          duration_seconds: null,
+          reason_codes: [],
+          spectrogram_url: null,
+          baseline_spectrogram_url: null,
+        })),
+        disclaimer: "이 보고서는 진단이 아닙니다.",
+      });
+    }
+    if (method === "GET" && path === "/sessions") {
+      return reply(
+        [...sessions.values()].map((row) => ({
+          id: row.id,
+          meal: row.meal,
+          phase: "TRACKING",
+          started_at: row.started,
+          ended_at: null,
+          duration_seconds: 0,
+          swallow_count: row.events.length,
+          caution_count: 0,
+          no_change_count: 0,
+        })),
+      );
+    }
+    if (method === "GET" && path.startsWith("/home/summary")) {
+      return reply({ meal_count: sessions.size, swallow_count: 0, caution_count: 0, recent: [] });
+    }
+    const eventMatch = path.match(/^\/events\/([^/]+)\/(voice-clip|skip|resolve)$/);
+    if (eventMatch && method === "POST") {
+      const state = eventMatch[2] === "voice-clip" ? "no_change" : eventMatch[2] === "skip" ? "skipped" : "caution";
+      for (const row of sessions.values()) {
+        const event = row.events.find((item) => item.id === eventMatch[1]);
+        if (event && eventMatch[2] !== "resolve") event.state = state;
+      }
+      return reply({
+        event_id: eventMatch[1],
+        state: eventMatch[2] === "resolve" ? "caution" : state,
+        phase: state === "no_change" || state === "skipped" ? "TRACKING" : "AWAITING_VOICE",
+        reason_codes: [],
+        warnings: [],
+        message_key: state,
+        profile_learning: true,
+      });
+    }
+    return reply({ error: { code: "NOT_FOUND" } }, 404);
+  });
 });
 afterEach(() => {
   cleanup();
@@ -179,19 +308,22 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
       ]),
     );
     mocks.route = "/report?id=timeline";
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("offline");
+    });
     await mount();
-    expect(screen.getByText("흡인 신호 분석 결과")).toBeTruthy();
+    expect(screen.getByText("주의 신호 분석 결과")).toBeTruthy();
     expect(screen.getByText("식사 시작 후 14:00")).toBeTruthy();
     expect(
-      screen.getByRole("button", { name: "흡인 알림 1, 19:27:00" }).style.left,
+      screen.getByRole("button", { name: "주의 신호 1, 19:27:00" }).style.left,
     ).toBe("35%");
     expect(
-      screen.getByRole("button", { name: "흡인 알림 2, 19:45:00" }).style.left,
+      screen.getByRole("button", { name: "주의 신호 2, 19:45:00" }).style.left,
     ).toBe("80%");
     await click("2번 알림 상세");
     expect(screen.getByText("식사 시작 후 32:00")).toBeTruthy();
     expect(screen.getByText("19:45:00")).toBeTruthy();
-    await click("흡인 알림 1, 19:27:00");
+    await click("주의 신호 1, 19:27:00");
     expect(screen.getByText("식사 시작 후 14:00")).toBeTruthy();
   });
   it("기존 기록에는 알림 시각을 임의로 채워 넣지 않는다", async () => {
@@ -209,17 +341,20 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
       ]),
     );
     mocks.route = "/report?id=legacy";
+    vi.stubGlobal("fetch", async () => {
+      throw new Error("offline");
+    });
     await mount();
     expect(screen.getByText("알림 시각 미기록")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /흡인 알림 1,/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: /주의 신호 1,/ })).toBeNull();
   });
   it("알림 없이 바로 종료한 0초 식사도 타임라인을 표시한다", async () => {
     await mount();
     await start();
     await finish();
     expect(screen.getByText("식사 타임라인")).toBeTruthy();
-    expect(screen.getByText("흡인 알림 없음")).toBeTruthy();
-    expect(screen.queryByRole("button", { name: /흡인 알림 1,/ })).toBeNull();
+    expect(screen.getByText("주의 신호 없음")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /주의 신호 1,/ })).toBeNull();
   });
 
   it("더보기 팝업을 연속으로 열어도 이전 내용이 남지 않고 이름 저장이 바로 반영된다", async () => {
@@ -230,17 +365,17 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await tab("더보기");
     await click("개인정보 처리 안내");
     expect(
-      screen.getByText(/이름과 식사 기록은 이 기기에 저장됩니다/),
+      screen.getByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
     ).toBeTruthy();
     await click("확인");
     await advance(200);
     expect(
-      screen.queryByText(/이름과 식사 기록은 이 기기에 저장됩니다/),
+      screen.queryByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
     ).toBeNull();
     await click("앱 버전");
     expect(screen.getByText("버전 0.2.0")).toBeTruthy();
     expect(
-      screen.queryByText(/이름과 식사 기록은 이 기기에 저장됩니다/),
+      screen.queryByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
     ).toBeNull();
     await click("확인");
     await advance(200);
@@ -283,8 +418,7 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     );
     await mount();
     await start();
-    await advance(5000);
-    await click("발성 안내");
+    await click("방금 삼켰어요");
     const idle = screen.getByLabelText("발성 안내 파형")
       .firstElementChild as HTMLElement;
     const idleTransform = idle.style.transform;
@@ -301,7 +435,6 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     ).toBe("1");
     await advance(1000);
     expect(screen.queryByLabelText("움직이는 녹음 파형")).toBeNull();
-    expect(mocks.recorder.stop).toHaveBeenCalledTimes(1);
   });
 
   it("기존 사용자와 기록을 한 번 초기화하고 새 가입 정보는 다시 지우지 않는다", async () => {
@@ -341,48 +474,32 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     expect(screen.getByText("안녕하세요, 새이름 님")).toBeTruthy();
     expect(mocks.storage.get("@samkim/profile")).toBe("새이름");
   });
-  it("5초 알림 → 2초 발성 → 완료 팝업 → 즉시 보고서와 영구 저장", async () => {
+  it("수동 삼킴 후 변화 없음 결과와 보고서를 저장한다", async () => {
     await mount();
     await start();
-    await advance(4999);
-    expect(screen.queryByText("흡인 알림")).toBeNull();
-    await advance(1);
-    expect(screen.getByText("흡인 알림")).toBeTruthy();
-    await click("발성 안내");
+    await click("방금 삼켰어요");
     await click("2초 발성 녹음 시작");
-    expect(mocks.recorder.record).toHaveBeenCalledTimes(1);
-    await advance(1999);
-    expect(mocks.recorder.stop).not.toHaveBeenCalled();
-    await advance(1);
-    expect(mocks.recorder.stop).toHaveBeenCalledTimes(1);
-    expect(screen.getByText("녹음 처리 중…")).toBeTruthy();
-    await advance(800);
-    expect(screen.getByText("녹음 완료")).toBeTruthy();
+    await advance(2000);
+    expect(screen.getByText(/평소와 큰 차이가 없었어요/)).toBeTruthy();
+    expect(screen.getByText("흡인이 없다는 뜻은 아니에요.")).toBeTruthy();
+    expect(screen.queryByText("정상적으로 삼킴을 완료했어요")).toBeNull();
     await click("확인");
-    await advance(6200);
-    expect(screen.queryByText("흡인 알림")).toBeNull();
     await finish();
     const saved = JSON.parse(mocks.storage.get("@samkim/records")!);
     expect(saved).toHaveLength(1);
     expect(saved[0]).toMatchObject({
       meal: "점심",
-      alerts: 1,
+      alerts: 0,
       voices: 1,
-      seconds: 14,
-      durationMs: 14000,
-      aspirationEvents: [{ id: expect.any(String), offsetMs: 5000 }],
+      swallows: 1,
     });
     expect(screen.getByText("발성 기록")).toBeTruthy();
-    expect(screen.queryByText("정상적으로 삼킴을 완료했어요")).toBeNull();
+    expect(screen.getByText("이 보고서는 진단이 아닙니다.")).toBeTruthy();
     await click("홈으로 돌아가기");
     cleanup();
     mocks.route = "/";
     await mount();
     expect(screen.getByText("점심 식사")).toBeTruthy();
-    await click("점심 식사 보고서 확인");
-    expect(
-      screen.getByRole("button", { name: "흡인 알림 1, 12:00:05" }),
-    ).toBeTruthy();
   });
   it("종료 버튼 한 번으로 해당 식사의 보고서를 바로 표시하고 뒤늦은 알림을 취소한다", async () => {
     await mount();
@@ -394,10 +511,10 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     const records = JSON.parse(mocks.storage.get("@samkim/records")!);
     expect(records).toHaveLength(1);
     expect(mocks.route).toBe(`/report?id=${records[0].id}`);
-    expect(records[0]).toMatchObject({ seconds: 2, alerts: 0, voices: 0 });
+    expect(records[0]).toMatchObject({ alerts: 0, voices: 0, swallows: 0 });
     expect(screen.queryByTestId("camera")).toBeNull();
     await advance(10000);
-    expect(screen.queryByText("흡인 알림")).toBeNull();
+    expect(screen.queryByText("평소와 다른 목소리가 이어져요.")).toBeNull();
     expect(JSON.parse(mocks.storage.get("@samkim/records")!)).toHaveLength(1);
   });
   it("마이크 권한이 거절되면 다음 단계로 이동할 수 없다", async () => {
@@ -440,14 +557,13 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
   it("발성을 건너뛴 기록은 보고서 필터로 찾고 다시 열 수 있다", async () => {
     await mount();
     await start();
-    await advance(5000);
-    await click("발성 안내");
+    await click("방금 삼켰어요");
     await click("지금은 건너뛰기");
     await finish();
-    expect(mocks.recorder.record).not.toHaveBeenCalled();
     expect(JSON.parse(mocks.storage.get("@samkim/records")!)[0]).toMatchObject({
-      alerts: 1,
+      alerts: 0,
       voices: 0,
+      swallows: 1,
     });
     await tab("보고서");
     await click("아침 보고서");

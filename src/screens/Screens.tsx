@@ -17,7 +17,7 @@ import {
   useApp,
 } from "../state/AppState";
 
-const LANDING_NOTICE = "흡인은 테스트이며 아직 백엔드와 연동이 안돼요";
+const LANDING_NOTICE = "진단이 아니에요. 평소와 다른 목소리를 식사 중에 알려 드려요.";
 
 export function WelcomeScreen() {
   const app = useApp(),
@@ -89,8 +89,8 @@ export function HomeScreen() {
         <View style={[s.row, { marginTop: 23, gap: 0 }]}>
           {[
             ["기록된 식사", `${today.length}회`],
-            ["삼킴 감지", "—"],
-            ["흡인 신호", `${today.reduce((n, r) => n + r.alerts, 0)}회`],
+            ["삼킴 감지", `${today.reduce((n, r) => n + (r.swallows ?? 0), 0)}회`],
+            ["주의 신호", `${today.reduce((n, r) => n + r.alerts, 0)}회`],
           ].map(([label, value], i) => (
             <View key={label} style={[s.stat, i < 2 && s.statDivider]}>
               <T style={s.statLabel}>{label}</T>
@@ -322,16 +322,21 @@ export function MonitorScreen() {
       </View>
       <Preview />
       <T style={s.cameraHelp}>
-        식사를 편안하게 이어가세요.{"\n"}발성 안내가 나오면 소리를 내주세요.
+        목이 보이면 삼킴을 찾아요. 놓쳤으면 아래 버튼을 눌러 주세요.
       </T>
       <View style={{ gap: 6, paddingHorizontal: 8 }}>
-        <T style={s.body}>· 카메라가 작동하고 있어요</T>
+        <T style={s.body}>· 카메라 영상은 이 기기를 떠나지 않아요</T>
         <T style={s.body}>· 발성 확인 시에만 녹음해요</T>
       </View>
       <View style={s.spacer} />
       <Button
+        title="방금 삼켰어요"
+        disabled={app.busy || app.popup === "baseline" || app.recording}
+        onPress={() => void app.markSwallow("manual")}
+      />
+      <Button
         title="식사 모니터링 종료하기"
-        disabled={app.busy}
+        disabled={app.busy || app.recording}
         onPress={() => void app.finish()}
       />
     </Page>
@@ -418,8 +423,8 @@ export function ReportScreen() {
             "식사 시간",
             `${clock(start)} ~ ${clock(end)} · 총 ${duration(record.seconds)}`,
           ],
-          ["삼킴 감지", "—"],
-          ["흡인 신호", `${record.alerts}회`],
+          ["삼킴 감지", `${record.swallows ?? 0}회`],
+          ["주의 신호", `${record.alerts}회`],
         ].map(([label, value]) => (
           <View key={label} style={s.summaryRow}>
             <T style={s.summaryLabel}>{label}</T>
@@ -430,6 +435,12 @@ export function ReportScreen() {
       <View style={s.divider} />
       <AspirationTimeline key={record.id} record={record} />
       <T style={s.heading}>발성 기록</T>
+      <T style={[s.caption, { marginTop: 8 }]}>
+        {record.disclaimer ?? "이 보고서는 진단이 아닙니다."}
+        {record.unanalyzable ? ` 분석 불가 ${record.unanalyzable}회.` : ""}
+        {record.skipped ? ` 건너뜀 ${record.skipped}회.` : ""}
+        {record.noResponse ? ` 미응답 ${record.noResponse}회.` : ""}
+      </T>
       <View style={s.analysisCard}>
         <View style={s.between}>
           <T style={s.body}>발성 녹음 완료</T>
@@ -471,7 +482,7 @@ export function MoreScreen() {
         onPress={() =>
           app.notify(
             "알림 설정",
-            "식사 모니터링 중 흡인 알림과 발성 안내를 표시합니다.",
+            "식사 모니터링 중 주의 신호와 발성 안내를 표시합니다. 초록 화면은 흡인이 없다는 뜻이 아니에요.",
           )
         }
       />
@@ -498,7 +509,7 @@ export function MoreScreen() {
         onPress={() =>
           app.notify(
             "개인정보 처리 안내",
-            "이름과 식사 기록은 이 기기에 저장됩니다. 카메라 영상은 저장하지 않으며, 발성 녹음은 기기에 임시 보관합니다.",
+            "이름과 보호자 설정은 이 기기에 저장됩니다. 카메라 영상은 서버로 보내지 않아요. 발성 원본은 분석 후 서버에서 지워요.",
           )
         }
       />
@@ -508,7 +519,7 @@ export function MoreScreen() {
         onPress={() =>
           app.setInfo({
             title: "식사 기록 삭제",
-            body: "이 기기에 저장된 식사 보고서를 모두 삭제할까요? 삭제하면 복구할 수 없어요. 이름은 유지됩니다.",
+            body: "이 기기와 서버의 식사 보고서를 모두 삭제할까요? 이름은 유지됩니다.",
             action: "delete",
           })
         }
