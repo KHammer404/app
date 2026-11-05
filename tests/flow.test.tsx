@@ -24,6 +24,13 @@ const mocks = vi.hoisted(() => ({
     stop: vi.fn(async () => {}),
   },
 }));
+vi.mock("expo-constants", () => ({
+  default: { expoConfig: null, expoGoConfig: null },
+}));
+vi.mock("expo-font", () => ({
+  useFonts: () => [true, null],
+}));
+vi.mock("../src/icons/font", () => ({ MATERIAL_SYMBOLS: 1 }));
 vi.mock("expo-router", () => {
   const subscribe = (fn: () => void) => {
     mocks.listeners.add(fn);
@@ -147,7 +154,7 @@ async function recordClip() {
   await click("2초 발성 녹음 시작");
   await advance(2000);
 }
-async function start() {
+async function openMeal() {
   await click("식사 모니터링 시작하기");
   await click("카메라/마이크 권한 설정하러 가기");
   await click("다음");
@@ -155,6 +162,9 @@ async function start() {
   await check("목 부위가 전부 잘 보여요");
   await check("조명이 적절해요");
   await click("식사 모니터링 시작하기");
+}
+async function start() {
+  await openMeal();
   await recordClip();
   await recordClip();
   await recordClip();
@@ -429,8 +439,7 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
       false,
     );
     await mount();
-    await start();
-    await click("방금 삼켰어요");
+    await openMeal();
     const idle = screen.getByLabelText("발성 안내 파형")
       .firstElementChild as HTMLElement;
     const idleTransform = idle.style.transform;
@@ -490,11 +499,9 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await mount();
     await start();
     await click("방금 삼켰어요");
-    await click("2초 발성 녹음 시작");
     await advance(2000);
-    expect(screen.getByText(/평소와 큰 차이가 없었어요/)).toBeTruthy();
-    expect(screen.getByText("흡인이 없다는 뜻은 아니에요.")).toBeTruthy();
-    expect(screen.queryByText("정상적으로 삼킴을 완료했어요")).toBeNull();
+    expect(screen.getByText("정상적으로 삼킴을 완료했어요")).toBeTruthy();
+    expect(screen.queryByText("흡인이 없다는 뜻은 아니에요.")).toBeNull();
     await click("확인");
     await finish();
     const saved = JSON.parse(mocks.storage.get("@samkim/records")!);

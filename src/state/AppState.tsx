@@ -119,7 +119,6 @@ function reportToRecord(report: SessionReport): MealRecord {
 
 function useAppController() {
   const path = usePathname();
-  const capture = useWavCapture();
   const [loaded, setLoaded] = useState(false),
     [name, setName] = useState(""),
     [records, setRecords] = useState<MealRecord[]>([]);
@@ -140,7 +139,8 @@ function useAppController() {
     [learning, setLearning] = useState(false),
     [busy, setBusy] = useState(false),
     [recording, setRecording] = useState(false),
-    [voiceSeconds, setVoiceSeconds] = useState(0);
+    [voiceSeconds, setVoiceSeconds] = useState(0),
+    [levels, setLevels] = useState<number[]>([]);
   const [info, setInfo] = useState<{
       title: string;
       body: string;
@@ -155,6 +155,7 @@ function useAppController() {
   }, [settings]);
   const started = useRef(0),
     recordingRef = useRef(false),
+    levelAt = useRef(0),
     voiceBusy = useRef(false),
     ending = useRef(false),
     mounted = useRef(true),
@@ -164,6 +165,17 @@ function useAppController() {
     clipsRef = useRef<string[]>([]),
     socketRef = useRef<WebSocket | null>(null);
   const previousPath = useRef(path);
+  const capture = useWavCapture((level) => {
+    if (!recordingRef.current) return;
+    const now = Date.now();
+    if (now - levelAt.current < 50) return;
+    levelAt.current = now;
+    setLevels((previous) => {
+      const next = previous.length >= 40 ? previous.slice(1) : previous.slice();
+      next.push(level);
+      return next;
+    });
+  });
   useEffect(() => {
     if (path === "/prepare" && previousPath.current !== "/camera") setMeal(mealForTime());
     previousPath.current = path;
@@ -257,9 +269,6 @@ function useAppController() {
     if (result.state === "no_change") {
       setVoices((value) => value + 1);
       setPopup("no_change");
-      voiceWait.current = setTimeout(() => {
-        if (mounted.current) setPopup((current) => (current === "no_change" ? null : current));
-      }, 2200);
     } else if (result.state === "recheck") {
       modeRef.current = "voice";
       setPopup("recheck");
@@ -341,25 +350,26 @@ function useAppController() {
           setVoiceSeconds(0);
           return;
         }
-        setPopup("analyzing");
+        const clips = clipsRef.current.splice(0);
+        const sessionId = sessionRef.current;
+        setBaselineStep(1);
+        setVoiceSeconds(0);
+        setPopup(null);
         try {
-          const baseline = await api.baseline(sessionRef.current, clipsRef.current.splice(0));
+          const baseline = await api.baseline(sessionId, clips);
           if (!mounted.current) return;
           setLearning(Boolean(baseline.profile_learning));
           if (!baseline.stable) {
-            setBaselineStep(1);
-            setPopup("baseline");
             modeRef.current = "baseline";
+            setPopup("baseline");
             notify(
               "기준 음성을 다시 녹음해 주세요",
               baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
                 "세 번의 아~가 고르지 않아요.",
             );
-            return;
           }
-          setPopup(null);
         } catch {
-          setBaselineStep(1);
+          modeRef.current = "baseline";
           setPopup("baseline");
           notify("기준 음성을 보내지 못했어요", "서버 연결을 확인하고 다시 녹음해 주세요.");
         }
@@ -487,6 +497,8 @@ function useAppController() {
       recordingRef.current = true;
       setRecording(true);
       setVoiceSeconds(0);
+      setLevels([]);
+      levelAt.current = 0;
       if (popup !== "baseline") modeRef.current = "voice";
       voiceTimer.current = setTimeout(() => void stopVoice(true), VOICE_MS);
     } catch {
@@ -495,6 +507,24 @@ function useAppController() {
       voiceBusy.current = false;
       setBusy(false);
     }
+  }
+  const voicePrompted = useRef<string | null>(null);
+  useEffect(() => {
+    if (popup !== "voice") {
+      voicePrompted.current = null;
+      return;
+    }
+    const eventId = eventRef.current ?? "voice";
+    if (voicePrompted.current === eventId || recordingRef.current || voiceBusy.current) return;
+    voicePrompted.current = eventId;
+    void startVoice();
+  }, [popup]);
+  async function redoVoice() {
+    if (popup !== "voice" && popup !== "recheck" && popup !== "unanalyzable") return;
+    if (recordingRef.current) await stopVoice(false);
+    setVoiceSeconds(0);
+    setLevels([]);
+    await startVoice();
   }
   async function markSwallow(trigger: "auto" | "manual" | "periodic" = "manual", confidence?: number) {
     if (!sessionRef.current || popup === "baseline" || popup === "analyzing" || popup === "caution") return;
@@ -519,6 +549,7 @@ function useAppController() {
     }
   }
   async function skipVoice() {
+    if (recordingRef.current) await stopVoice(false);
     const eventId = eventRef.current;
     if (!eventId || recordingRef.current) {
       setPopup(null);
@@ -643,6 +674,7 @@ function useAppController() {
     busy,
     recording,
     voiceSeconds,
+    levels,
     info,
     setInfo,
     largeText,
@@ -652,6 +684,7 @@ function useAppController() {
     permissions,
     begin,
     startVoice,
+    redoVoice,
     markSwallow,
     skipVoice,
     resolveCaution,

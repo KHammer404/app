@@ -1,124 +1,29 @@
-import React, { useEffect, useState } from "react";
-import {
-  AccessibilityInfo,
-  Animated,
-  Easing,
-  Platform,
-  StyleSheet,
-  View,
-} from "react-native";
+import React from "react";
+import { StyleSheet, View } from "react-native";
 import { TEAL } from "./theme";
 import { T } from "./UI";
 
-const HEIGHTS = [
-  12, 28, 48, 34, 16, 24, 42, 60, 36, 18, 30, 50, 34, 14, 28, 52, 38, 20, 44,
-  60, 32, 16, 28, 12,
-];
-const nativeDriver = Platform.OS !== "web";
+const SLOTS = 40;
 
-/** Recording activity indicator, not an audio amplitude measurement. */
 export default function RecordingWaveform({
   recording,
   seconds,
   durationMs,
+  levels,
 }: {
   recording: boolean;
   seconds: number;
   durationMs: number;
+  levels: number[];
 }) {
-  const [reduceMotion, setReduceMotion] = useState(false);
-  const [bars] = useState(() => HEIGHTS.map(() => new Animated.Value(0.22)));
-  const [pulse] = useState(() => new Animated.Value(1));
-  const [progress] = useState(() => new Animated.Value(0));
-  useEffect(() => {
-    let mounted = true;
-    void AccessibilityInfo.isReduceMotionEnabled()
-      .then((value) => {
-        if (mounted) setReduceMotion(value);
-      })
-      .catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion,
-    );
-    return () => {
-      mounted = false;
-      subscription?.remove();
-    };
-  }, []);
-  useEffect(() => {
-    if (!recording || reduceMotion) {
-      bars.forEach((bar) => bar.setValue(recording ? 0.55 : 0.22));
-      pulse.setValue(1);
-      return;
-    }
-    const loops = bars.map((bar, i) =>
-      Animated.loop(
-        Animated.sequence([
-          Animated.timing(bar, {
-            toValue: 0.55 + (i % 4) * 0.15,
-            duration: 150 + (i % 5) * 45,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: nativeDriver,
-            isInteraction: false,
-          }),
-          Animated.timing(bar, {
-            toValue: 0.15 + (i % 3) * 0.08,
-            duration: 180 + (i % 4) * 55,
-            easing: Easing.inOut(Easing.sin),
-            useNativeDriver: nativeDriver,
-            isInteraction: false,
-          }),
-        ]),
-        { iterations: -1, resetBeforeIteration: false },
-      ),
-    );
-    const blink = Animated.loop(
-      Animated.sequence([
-        Animated.timing(pulse, {
-          toValue: 0.35,
-          duration: 500,
-          useNativeDriver: nativeDriver,
-          isInteraction: false,
-        }),
-        Animated.timing(pulse, {
-          toValue: 1,
-          duration: 500,
-          useNativeDriver: nativeDriver,
-          isInteraction: false,
-        }),
-      ]),
-    );
-    loops.forEach((loop) => loop.start());
-    blink.start();
-    return () => {
-      loops.forEach((loop) => loop.stop());
-      blink.stop();
-    };
-  }, [recording, reduceMotion, bars, pulse]);
-  useEffect(() => {
-    progress.setValue(0);
-    if (!recording || reduceMotion) return;
-    const fill = Animated.timing(progress, {
-      toValue: 1,
-      duration: durationMs,
-      easing: Easing.linear,
-      useNativeDriver: false,
-      isInteraction: false,
-    });
-    fill.start();
-    return () => fill.stop();
-  }, [recording, reduceMotion, durationMs, progress]);
-  useEffect(() => {
-    if (recording && reduceMotion)
-      progress.setValue(Math.min(1, (seconds * 1000) / durationMs));
-  }, [recording, reduceMotion, seconds, durationMs, progress]);
+  const shown = (recording ? levels : []).slice(-SLOTS);
+  const padded = Array.from({ length: SLOTS }, (_, index) =>
+    index < shown.length ? shown[index] : 0.04,
+  );
   return (
     <View style={styles.root}>
       <View style={styles.status}>
-        <Animated.View
-          style={[styles.dot, { opacity: recording ? pulse : 0.3 }]}
-        />
+        <View style={[styles.dot, { opacity: recording ? 1 : 0.3 }]} />
         <T accessibilityLiveRegion="polite" style={styles.statusText}>
           {recording ? "목소리를 녹음하고 있어요" : "녹음 준비"}
         </T>
@@ -128,19 +33,24 @@ export default function RecordingWaveform({
         style={styles.time}
       >
         {`00:${String(seconds).padStart(2, "0")}`}
-        <T
-          style={styles.total}
-        >{` / 00:${String(durationMs / 1000).padStart(2, "0")}`}</T>
+        <T style={styles.total}>{` / 00:${String(durationMs / 1000).padStart(2, "0")}`}</T>
       </T>
       <View
         accessibilityLabel={recording ? "움직이는 녹음 파형" : "발성 안내 파형"}
-        style={[styles.wave, !recording && { opacity: 0.45 }]}
+        style={styles.wave}
       >
-        {HEIGHTS.map((height, i) => (
-          <Animated.View
-            key={i}
-            style={[styles.bar, { height, transform: [{ scaleY: bars[i] }] }]}
-          />
+        {padded.map((level, index) => (
+          <View key={index} style={styles.slot}>
+            <View
+              style={[
+                styles.bar,
+                {
+                  height: Math.max(3, Math.min(1, level) * 68),
+                  opacity: recording ? 1 : 0.35,
+                },
+              ]}
+            />
+          </View>
         ))}
       </View>
       <View
@@ -152,21 +62,17 @@ export default function RecordingWaveform({
         aria-valuenow={seconds}
         style={styles.track}
       >
-        <Animated.View
+        <View
           style={[
             styles.fill,
-            {
-              width: progress.interpolate({
-                inputRange: [0, 1],
-                outputRange: ["0%", "100%"],
-              }),
-            },
+            { width: `${Math.min(100, (seconds * 1000 * 100) / durationMs)}%` },
           ]}
         />
       </View>
     </View>
   );
 }
+
 const styles = StyleSheet.create({
   root: { alignSelf: "stretch", gap: 14, paddingVertical: 5 },
   status: {
@@ -190,9 +96,10 @@ const styles = StyleSheet.create({
     flexDirection: "row",
     alignItems: "center",
     justifyContent: "center",
-    gap: 4,
+    gap: 3,
   },
-  bar: { width: 5, borderRadius: 2, backgroundColor: TEAL },
+  slot: { width: 4, height: 72, alignItems: "center", justifyContent: "center" },
+  bar: { width: 4, borderRadius: 2, backgroundColor: TEAL },
   track: {
     height: 4,
     borderRadius: 2,

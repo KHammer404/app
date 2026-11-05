@@ -340,18 +340,23 @@ export function MonitorScreen() {
       </View>
       <Preview shutter={shutter} />
       <T style={s.cameraHelp}>
-        {hint ?? "목이 보이면 삼킴을 찾아요. 놓쳤으면 아래 버튼을 눌러 주세요."}
+        식사를 편안하게 이어가세요.{"\n"}삼킴 동작이 감지되면 안내해 드릴게요.
       </T>
       <View style={{ gap: 6, paddingHorizontal: 8 }}>
-        <T style={s.body}>· 카메라 영상은 이 기기를 떠나지 않아요</T>
-        <T style={s.body}>· 발성 확인 시에만 녹음해요</T>
+        <T style={[s.body, { textAlign: "center" }]}>· 카메라가 작동하고 있어요</T>
+        <T style={[s.body, { textAlign: "center" }]}>
+          · {hint ?? "얼굴과 목 영역을 추적하고 있어요"}
+        </T>
       </View>
       <View style={s.spacer} />
-      <Button
-        title="방금 삼켰어요"
+      <Pressable
+        accessibilityRole="button"
         disabled={app.busy || app.popup === "baseline" || app.recording}
         onPress={() => void app.markSwallow("manual")}
-      />
+        style={{ alignSelf: "center", padding: 8 }}
+      >
+        <T style={s.link}>방금 삼켰어요</T>
+      </Pressable>
       <Button
         title="식사 모니터링 종료하기"
         disabled={app.busy || app.recording}

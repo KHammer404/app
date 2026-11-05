@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   AccessibilityInfo,
   Animated,
@@ -7,9 +7,14 @@ import {
   StyleSheet,
   View,
 } from "react-native";
-import { BlurTargetView, BlurView } from "expo-blur";
+import { BlurView } from "expo-blur";
+import {
+  GlassContainer,
+  GlassView,
+  isGlassEffectAPIAvailable,
+} from "expo-glass-effect";
 import { router } from "expo-router";
-import { Icon, T } from "./UI";
+import { Icon } from "./UI";
 import { INK, s, TEAL } from "./theme";
 
 const TABS = [
@@ -19,14 +24,23 @@ const TABS = [
   ["more", "grid", "더보기"],
 ] as const;
 type Tab = (typeof TABS)[number][0];
-const INSET = 6;
+
+function liquidGlass() {
+  if (Platform.OS !== "ios") return false;
+  try {
+    return isGlassEffectAPIAvailable();
+  } catch {
+    return false;
+  }
+}
+
 export default function GlassTabBar({ selected }: { selected: Tab }) {
-  const index = TABS.findIndex(([target]) => target === selected);
+  const index = Math.max(0, TABS.findIndex(([target]) => target === selected));
   const [position] = useState(() => new Animated.Value(index));
   const [width, setWidth] = useState(0);
   const [reduceMotion, setReduceMotion] = useState(false);
-  const blurTargetRef = useRef<React.ComponentRef<typeof View> | null>(null);
-  const cellWidth = Math.max(0, (width - INSET * 2) / TABS.length);
+  const glass = liquidGlass();
+  const cell = width > 0 ? width / TABS.length : 0;
   useEffect(() => {
     let mounted = true;
     void AccessibilityInfo.isReduceMotionEnabled()
@@ -34,10 +48,7 @@ export default function GlassTabBar({ selected }: { selected: Tab }) {
         if (mounted) setReduceMotion(value);
       })
       .catch(() => {});
-    const subscription = AccessibilityInfo.addEventListener(
-      "reduceMotionChanged",
-      setReduceMotion,
-    );
+    const subscription = AccessibilityInfo.addEventListener("reduceMotionChanged", setReduceMotion);
     return () => {
       mounted = false;
       subscription?.remove();
@@ -50,150 +61,149 @@ export default function GlassTabBar({ selected }: { selected: Tab }) {
     }
     const slide = Animated.spring(position, {
       toValue: index,
-      stiffness: 280,
-      damping: 25,
-      mass: 0.85,
+      stiffness: 320,
+      damping: 28,
+      mass: 0.8,
       useNativeDriver: Platform.OS !== "web",
       isInteraction: false,
     });
     slide.start();
     return () => slide.stop();
   }, [index, position, reduceMotion]);
+  const lens =
+    cell > 0 ? (
+      <Animated.View
+        pointerEvents="none"
+        style={[
+          styles.lens,
+          {
+            width: cell - 8,
+            transform: [
+              {
+                translateX: position.interpolate({
+                  inputRange: [0, TABS.length - 1],
+                  outputRange: [4, 4 + cell * (TABS.length - 1)],
+                }),
+              },
+            ],
+          },
+        ]}
+      >
+        {glass ? (
+          <GlassView
+            pointerEvents="none"
+            isInteractive
+            glassEffectStyle="clear"
+            style={styles.lensFill}
+          />
+        ) : (
+          <View style={styles.lensFallback} />
+        )}
+      </Animated.View>
+    ) : null;
+  const items = TABS.map(([target, icon, label], item) => {
+    const active = selected === target;
+    const scale = position.interpolate({
+      inputRange: [item - 1, item, item + 1],
+      outputRange: [1, 1.08, 1],
+      extrapolate: "clamp",
+    });
+    return (
+      <Pressable
+        key={target}
+        accessibilityRole="tab"
+        accessibilityLabel={label}
+        accessibilityState={{ selected: active }}
+        aria-selected={active}
+        onPress={() => router.replace(`/${target}`)}
+        style={styles.item}
+      >
+        <Animated.View style={{ transform: [{ scale }] }}>
+          <Icon name={icon} color={active ? TEAL : INK} size={23} />
+        </Animated.View>
+        <Animated.Text
+          style={[
+            s.navText,
+            active && { color: TEAL, fontWeight: "700" },
+            { opacity: position.interpolate({
+              inputRange: [item - 1, item, item + 1],
+              outputRange: [0.72, 1, 0.72],
+              extrapolate: "clamp",
+            }) },
+          ]}
+        >
+          {label}
+        </Animated.Text>
+      </Pressable>
+    );
+  });
   return (
-    <View style={s.navWrap}>
+    <View style={styles.wrap} pointerEvents="box-none">
       <View
         accessibilityRole="tablist"
         accessibilityLabel="하단 메뉴"
         onLayout={(event) => setWidth(event.nativeEvent.layout.width)}
         style={styles.bar}
       >
-        <BlurTargetView
-          ref={blurTargetRef}
-          pointerEvents="none"
-          style={styles.backdrop}
-        />
-        <BlurView
-          pointerEvents="none"
-          blurTarget={blurTargetRef}
-          blurMethod="dimezisBlurViewSdk31Plus"
-          tint="light"
-          intensity={45}
-          style={styles.barBlur}
-        />
-        {cellWidth > 0 && (
-          <Animated.View
-            pointerEvents="none"
-            accessibilityElementsHidden
-            importantForAccessibility="no-hide-descendants"
-            style={[
-              styles.capsule,
-              {
-                width: cellWidth - 2,
-                transform: [
-                  {
-                    translateX: position.interpolate({
-                      inputRange: [0, TABS.length - 1],
-                      outputRange: [0, cellWidth * (TABS.length - 1)],
-                    }),
-                  },
-                ],
-              },
-            ]}
-          >
-            <View style={styles.capsuleSurface}>
-              <BlurView
-                blurTarget={blurTargetRef}
-                blurMethod="dimezisBlurViewSdk31Plus"
-                tint="light"
-                intensity={30}
-                style={styles.capsuleBlur}
-              />
-              <View style={styles.tealTint} />
-            </View>
-          </Animated.View>
+        {glass ? (
+          <GlassContainer pointerEvents="box-none" spacing={8} style={styles.fill}>
+            <GlassView pointerEvents="none" glassEffectStyle="regular" style={styles.fill} />
+            {lens}
+            <View style={styles.row}>{items}</View>
+          </GlassContainer>
+        ) : (
+          <>
+            <BlurView pointerEvents="none" tint="light" intensity={70} style={styles.fill} />
+            <View pointerEvents="none" style={styles.fallbackTint} />
+            {lens}
+            <View style={styles.row}>{items}</View>
+          </>
         )}
-        {TABS.map(([target, icon, label]) => (
-          <Pressable
-            key={target}
-            accessibilityRole="tab"
-            accessibilityLabel={label}
-            accessibilityState={{ selected: selected === target }}
-            aria-selected={selected === target}
-            onPress={() => router.replace(`/${target}`)}
-            style={({ pressed }) => [styles.item, pressed && { opacity: 0.65 }]}
-          >
-            <Icon
-              name={icon}
-              color={selected === target ? TEAL : INK}
-              size={24}
-            />
-            <T
-              style={[
-                s.navText,
-                selected === target && { color: TEAL, fontWeight: "700" },
-              ]}
-            >
-              {label}
-            </T>
-          </Pressable>
-        ))}
       </View>
     </View>
   );
 }
+
 const styles = StyleSheet.create({
-  bar: {
-    flexDirection: "row",
-    padding: 5,
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,.95)",
-    borderRadius: 50,
-    overflow: "hidden",
-    backgroundColor: "rgba(255,255,255,.45)",
-  },
-  backdrop: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 999,
-    backgroundColor: "#ECF2F1",
-  },
-  barBlur: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  capsule: {
+  wrap: {
     position: "absolute",
-    left: INSET + 1,
-    top: INSET,
-    bottom: INSET,
-    borderRadius: 999,
-    overflow: "hidden",
-    isolation: "isolate",
-    backgroundColor: "rgba(255,255,255,.5)",
+    left: 16,
+    right: 16,
+    bottom: 8,
   },
-  capsuleSurface: {
+  bar: {
+    height: 64,
+    borderRadius: 32,
+    overflow: "hidden",
+    backgroundColor: Platform.OS === "ios" ? "transparent" : "rgba(255,255,255,0.72)",
+    shadowColor: "#000",
+    shadowOpacity: 0.12,
+    shadowRadius: 16,
+    shadowOffset: { width: 0, height: 8 },
+  },
+  fill: { ...StyleSheet.absoluteFill, borderRadius: 32 },
+  row: { flex: 1, flexDirection: "row" },
+  lens: {
+    position: "absolute",
+    top: 4,
+    bottom: 4,
+    borderRadius: 28,
+    overflow: "hidden",
+  },
+  lensFill: { flex: 1, borderRadius: 28 },
+  lensFallback: {
     flex: 1,
-    borderRadius: 999,
-    overflow: "hidden",
-    borderWidth: 1,
-    borderColor: "rgba(255,255,255,.9)",
+    borderRadius: 28,
+    backgroundColor: "rgba(255,255,255,0.72)",
   },
-  capsuleBlur: {
+  fallbackTint: {
     ...StyleSheet.absoluteFill,
-    borderRadius: 999,
-    overflow: "hidden",
-  },
-  tealTint: {
-    ...StyleSheet.absoluteFill,
-    borderRadius: 999,
-    backgroundColor: "rgba(39,143,156,.13)",
+    backgroundColor: "rgba(255,255,255,0.55)",
   },
   item: {
     flex: 1,
-    borderRadius: 42,
     alignItems: "center",
     justifyContent: "center",
-    gap: 5,
-    minHeight: 63,
+    gap: 2,
   },
 });

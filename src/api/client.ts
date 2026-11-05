@@ -1,7 +1,18 @@
+import Constants from "expo-constants";
+
 import type { Meal } from "../utils/mealTime";
 
-const API_URL = process.env.EXPO_PUBLIC_API_URL ?? "http://127.0.0.1:8000";
 const API_TOKEN = process.env.EXPO_PUBLIC_API_TOKEN ?? "dev-token";
+
+function apiBase() {
+  const configured = process.env.EXPO_PUBLIC_API_URL?.replace(/\/$/, "");
+  if (configured) return configured;
+  // Expo Go에서는 Metro와 같은 기기의 8000번으로 붙는다
+  const config = Constants.expoConfig as { hostUri?: string } | null;
+  const go = Constants.expoGoConfig as { debuggerHost?: string } | null;
+  const host = (config?.hostUri ?? go?.debuggerHost)?.split(":")[0];
+  return host ? `http://${host}:8000` : "http://127.0.0.1:8000";
+}
 
 export const MEAL_SLOT: Record<Meal, string> = {
   아침: "breakfast",
@@ -98,7 +109,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
   if (init.body && !(init.body instanceof FormData) && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
-  const response = await fetch(`${API_URL}${path}`, { ...init, headers });
+  const response = await fetch(`${apiBase()}${path}`, { ...init, headers });
   if (!response.ok) {
     let code = "REQUEST_FAILED";
     try {
@@ -118,11 +129,11 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 export function assetUrl(path: string | null | undefined) {
   if (!path) return null;
   if (path.startsWith("http")) return path;
-  return `${API_URL}${path}`;
+  return `${apiBase()}${path}`;
 }
 
 export function socketUrl(sessionId: string) {
-  const base = API_URL.replace(/^http/, "ws");
+  const base = apiBase().replace(/^http/, "ws");
   return `${base}/ws/sessions/${sessionId}?token=${encodeURIComponent(API_TOKEN)}`;
 }
 

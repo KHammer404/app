@@ -30,6 +30,12 @@ async function discard(uri?: string) {
   }
 }
 
+const HINT = {
+  lost: "얼굴과 목이 보이지 않아요",
+  mouth: "씹거나 말하는 동안에는 삼킴으로 세지 않아요",
+  turn: "얼굴을 화면 가운데로 맞춰 주세요",
+};
+
 export function useNeckWatch(
   cameraRef: { current: Shutter | null },
   enabled: boolean,
@@ -52,13 +58,12 @@ export function useNeckWatch(
       if (stopped || busy) return;
       const camera = cameraRef.current;
       if (!camera?.takePicture) {
-        setHint("목이 보이지 않아요");
+        setHint(HINT.lost);
         return;
       }
       busy = true;
       void (async () => {
         try {
-          // 프레임 프로세서 없음, 저화질 정지 영상으로 목 움직임만 보고 파일은 지움
           const picture = await camera.takePicture({
             quality: 0.05,
             base64: true,
@@ -67,15 +72,15 @@ export function useNeckWatch(
           });
           void discard(picture.uri);
           if (!picture.base64) {
-            setHint("목이 보이지 않아요");
+            setHint(HINT.lost);
             return;
           }
           const decoded = decode(bytesFromBase64(picture.base64), { useTArray: true, formatAsRGBA: true });
-          const gray = downsample(decoded.data, decoded.width, decoded.height, 24, 32);
-          const result = watch.current.push(gray, 24, 32, Date.now());
+          const gray = downsample(decoded.data, decoded.width, decoded.height, 48, 64);
+          const result = watch.current.push(gray, 48, 64, Date.now());
           if (result.kind === "lost") {
             if (!lostAt) lostAt = Date.now();
-            setHint("목이 보이지 않아요");
+            setHint(HINT.lost);
             if (Date.now() - lostAt > 8000 && Date.now() - lastPeriodic > periodicMs) {
               lastPeriodic = Date.now();
               onSwallowRef.current("periodic");
@@ -83,15 +88,19 @@ export function useNeckWatch(
             return;
           }
           lostAt = 0;
-          setHint(null);
-          if (result.kind === "swallow") onSwallowRef.current("auto", result.confidence);
+          if (result.kind === "swallow") {
+            setHint(null);
+            onSwallowRef.current("auto", result.confidence);
+            return;
+          }
+          setHint(result.note === "watch" ? null : HINT[result.note]);
         } catch {
-          setHint("목이 보이지 않아요");
+          setHint(HINT.lost);
         } finally {
           busy = false;
         }
       })();
-    }, 450);
+    }, 120);
     return () => {
       stopped = true;
       clearInterval(timer);

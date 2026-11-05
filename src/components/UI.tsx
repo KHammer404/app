@@ -1,10 +1,35 @@
 import React from "react";
 import MotionPressable from "./MotionPressable";
 import { Pressable, StyleSheet, Text, TextProps, View } from "react-native";
-import Feather from "@expo/vector-icons/Feather";
 import { useApp } from "../state/AppState";
 import { GRAY, INK, s, TEAL } from "./theme";
-export type IconName = React.ComponentProps<typeof Feather>["name"];
+
+const GLYPH = {
+  home: 0xe9b2,
+  activity: 0xeaa2,
+  "file-text": 0xe873,
+  grid: 0xe9b0,
+  bell: 0xe7f5,
+  check: 0xe668,
+  "alert-triangle": 0xf083,
+  coffee: 0xefef,
+  clock: 0xefd6,
+  "minus-circle": 0xf08f,
+  "chevron-right": 0xe5cc,
+  video: 0xe04b,
+  mic: 0xe31d,
+  user: 0xf0d3,
+  type: 0xe245,
+  shield: 0xe9e0,
+  database: 0xf20e,
+  "volume-2": 0xe050,
+  "help-circle": 0xe8fd,
+  info: 0xe88e,
+  "alert-circle": 0xf8b6,
+} as const;
+
+export type IconName = keyof typeof GLYPH;
+
 export function Icon({
   name,
   color = INK,
@@ -14,7 +39,24 @@ export function Icon({
   color?: string;
   size?: number;
 }) {
-  return <Feather name={name} color={color} size={size} />;
+  return (
+    <Text
+      allowFontScaling={false}
+      accessibilityElementsHidden
+      importantForAccessibility="no-hide-descendants"
+      style={{
+        fontFamily: "MaterialSymbolsOutlined",
+        fontSize: size,
+        lineHeight: size,
+        width: size,
+        height: size,
+        color,
+        textAlign: "center",
+      }}
+    >
+      {String.fromCodePoint(GLYPH[name])}
+    </Text>
+  );
 }
 export function T({ style, ...props }: TextProps) {
   const { largeText } = useApp();
@@ -40,6 +82,7 @@ export function Button({
   disabled = false,
   icon,
   danger = false,
+  compact = false,
 }: {
   title: string;
   onPress: () => void;
@@ -47,6 +90,7 @@ export function Button({
   disabled?: boolean;
   icon?: IconName;
   danger?: boolean;
+  compact?: boolean;
 }) {
   return (
     <MotionPressable
@@ -58,6 +102,7 @@ export function Button({
         s.button,
         secondary && s.secondary,
         danger && { backgroundColor: "#E94849" },
+        compact && { alignSelf: "center", minWidth: 112, paddingHorizontal: 28 },
       ]}
     >
       {icon && <Icon name={icon} color={secondary ? GRAY : "white"} />}

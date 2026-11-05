@@ -94,6 +94,7 @@ function SessionModal() {
             recording={app.recording}
             seconds={app.voiceSeconds}
             durationMs={VOICE_MS}
+            levels={app.levels}
           />
           <Button
             title={app.recording ? "녹음 중…" : "2초 발성 녹음 시작"}
@@ -106,32 +107,38 @@ function SessionModal() {
         <>
           <T style={s.modalTitle}>
             {app.popup === "recheck"
-              ? "평소와 조금 달라요. 가볍게 기침하고 아~를 한 번 더 해볼까요?"
+              ? "평소와 조금 달라요"
               : app.popup === "unanalyzable"
-                ? "소리를 잘 듣지 못했어요. 다시 해볼까요?"
-                : "입 안의 음식을 모두 삼킨 뒤에, 2초 동안 아~ 해주세요"}
+                ? "소리를 잘 듣지 못했어요"
+                : "삼킴이 감지되었습니다."}
           </T>
-          {!!app.reasonText && (
-            <T style={[s.caption, s.center]}>{app.reasonText}</T>
-          )}
+          <T style={[s.caption, s.center]}>
+            {app.popup === "recheck"
+              ? "가볍게 기침하고 2초 동안 아~ 소리를 내주세요"
+              : app.popup === "unanalyzable"
+                ? app.reasonText || "2초 동안 아~ 소리를 다시 내주세요"
+                : "2초동안 “아~” 소리를 내주세요"}
+          </T>
           <RecordingWaveform
             recording={app.recording}
             seconds={app.voiceSeconds}
             durationMs={VOICE_MS}
+            levels={app.levels}
           />
-          <Button
-            title={
-              app.recording ? "녹음 중…" : app.busy ? "마이크 준비 중…" : "2초 발성 녹음 시작"
-            }
-            disabled={app.busy || app.recording}
-            onPress={() => void app.startVoice()}
-          />
-          {app.settings.allowSkip && (
+          <Pressable
+            accessibilityRole="button"
+            disabled={app.busy}
+            onPress={() => void app.redoVoice()}
+            style={{ alignSelf: "center", padding: 8 }}
+          >
+            <T style={[s.link, { textDecorationLine: "underline" }]}>녹음 다시하기</T>
+          </Pressable>
+          {app.settings.allowSkip && app.popup === "voice" && (
             <Pressable
               accessibilityRole="button"
-              disabled={app.recording || app.busy}
+              disabled={app.busy}
               onPress={() => void app.skipVoice()}
-              style={{ alignSelf: "center", padding: 8 }}
+              style={{ alignSelf: "center", padding: 4 }}
             >
               <T style={s.link}>지금은 건너뛰기</T>
             </Pressable>
@@ -147,25 +154,24 @@ function SessionModal() {
       {app.popup === "no_change" && (
         <>
           <View style={s.statusCircle}>
-            <Icon name="check" color="white" size={45} />
+            <Icon name="check" color="white" size={36} />
           </View>
-          <T style={[s.modalTitle, { color: TEAL }]}>
-            이번 발성에서는 평소와 큰 차이가 없었어요.
+          <T style={[s.modalTitle, { color: TEAL }]}>정상적으로 삼킴을 완료했어요</T>
+          <T style={[s.caption, s.center]}>
+            간혹 미세한 이물질이 남아있을 수 있으니, 더 안전한 마무리를 위해 가볍게 기침을 한두
+            번 해보시는 것을 추천해요.
           </T>
-          <T style={[s.caption, s.center]}>흡인이 없다는 뜻은 아니에요.</T>
-          {app.learning && <T style={[s.caption, s.center]}>기준을 학습 중이에요.</T>}
-          <Button title="확인" onPress={() => app.setPopup(null)} />
+          <Button compact title="확인" onPress={() => app.setPopup(null)} />
         </>
       )}
       {app.popup === "caution" && (
         <>
-          <View style={[s.statusCircle, { backgroundColor: RED }]}>
-            <Icon name="alert-triangle" color="white" size={38} />
+          <View style={[s.statusCircle, { backgroundColor: "#FDECEC" }]}>
+            <Icon name="alert-triangle" color={RED} size={34} />
           </View>
-          <T style={[s.modalTitle, { color: RED }]}>평소와 다른 목소리가 이어져요.</T>
-          <T style={[s.caption, s.center]}>
-            숨을 크게 들이쉬고 강하게 기침하세요. 호흡이 힘들거나 기침이 멈추지 않으면 119에
-            연락하세요. 앱은 응급 대응을 대신하지 않아요.
+          <T style={[s.modalTitle, { color: RED }]}>기도 흡인이 의심돼요</T>
+          <T style={[s.modalTitle, { color: RED, fontSize: 20 }]}>
+            숨을 크게 들이쉬고 강하게 기침을 하세요
           </T>
           <Button title="처치를 완료했어요" danger onPress={() => void app.resolveCaution()} />
         </>
@@ -235,9 +241,11 @@ function InfoModal() {
 
 export function Page({ children }: React.PropsWithChildren) {
   const { loaded } = useApp();
+  const path = usePathname();
+  const tabbed = path !== "/" && path !== "/monitor";
   return (
     <ScrollView
-      contentContainerStyle={s.content}
+      contentContainerStyle={[s.content, tabbed && { paddingBottom: 108 }]}
       keyboardShouldPersistTaps="handled"
     >
       {loaded ? (
