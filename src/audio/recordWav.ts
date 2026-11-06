@@ -3,6 +3,7 @@ import { useRef } from "react";
 
 type Capture = {
   uri: string;
+  bytes: Uint8Array | null;
 };
 
 function levelOf(buffer: AudioStreamBuffer) {
@@ -18,6 +19,16 @@ function levelOf(buffer: AudioStreamBuffer) {
   }
   const rms = Math.sqrt(sum / Math.max(1, count));
   return Math.min(1, Math.pow(rms, 0.55) * 3.4);
+}
+
+async function readWav(uri: string) {
+  try {
+    const { File } = await import("expo-file-system");
+    const data = new Uint8Array(await new File(uri).arrayBuffer());
+    return data.byteLength > 44 ? data : null;
+  } catch {
+    return null;
+  }
 }
 
 export function useWavCapture(onLevel?: (level: number) => void) {
@@ -45,8 +56,9 @@ export function useWavCapture(onLevel?: (level: number) => void) {
     },
     async end(): Promise<Capture> {
       const stopped = await stream.stopFileRecordingAsync();
+      const bytes = await readWav(stopped.uri);
       stream.stop();
-      return { uri: stopped.uri };
+      return { uri: stopped.uri, bytes };
     },
     async cancel() {
       try {

@@ -253,9 +253,10 @@ function Permission({
 function Preview({
   shutter,
 }: {
-  shutter?: { current: { takePicture: (options: object) => Promise<{ uri?: string; base64?: string }> } | null };
+  shutter?: { current: { takePictureAsync?: (options: object) => Promise<unknown>; getAvailablePictureSizesAsync?: () => Promise<string[]> } | null };
 }) {
   const app = useApp();
+  const [pictureSize, setPictureSize] = useState<string | undefined>();
   return (
     <View style={s.camera}>
       {app.cameraPermission?.granted && app.active ? (
@@ -263,7 +264,23 @@ function Preview({
           ref={shutter as never}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           facing="front"
-          onCameraReady={() => app.setCameraReady(true)}
+          mode="picture"
+          animateShutter={false}
+          pictureSize={pictureSize}
+          onCameraReady={() => {
+            app.setCameraReady(true);
+            const camera = shutter?.current;
+            void camera?.getAvailablePictureSizesAsync?.().then((sizes) => {
+              const ranked = sizes
+                .map((size) => {
+                  const [width, height] = size.split("x").map((value) => Number(value));
+                  return { size, pixels: (width || 0) * (height || 0) };
+                })
+                .filter((item) => item.pixels >= 320 * 240)
+                .sort((left, right) => left.pixels - right.pixels);
+              if (ranked[0]) setPictureSize(ranked[0].size);
+            });
+          }}
           onMountError={() => {
             app.setCameraReady(false);
             app.notify(

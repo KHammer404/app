@@ -4,13 +4,30 @@ import { decode } from "jpeg-js";
 import { downsample, SwallowWatch } from "./detect";
 
 type Shutter = {
-  takePicture: (options: {
-    quality?: number;
-    base64?: boolean;
-    shutterSound?: boolean;
-    skipProcessing?: boolean;
-  }) => Promise<{ uri?: string; base64?: string }>;
+  takePicture?: (options: PictureOptions) => Promise<Shot>;
+  takePictureAsync?: (options: PictureOptions) => Promise<Shot>;
+  getAvailablePictureSizesAsync?: () => Promise<string[]>;
 };
+
+type PictureOptions = {
+  quality?: number;
+  base64?: boolean;
+  shutterSound?: boolean;
+  skipProcessing?: boolean;
+};
+
+type Shot = { uri?: string; base64?: string; width?: number; height?: number };
+
+function canShoot(camera: Shutter) {
+  return Boolean(camera.takePictureAsync || camera.takePicture);
+}
+
+function shoot(camera: Shutter) {
+  const options = { quality: 0.2, base64: true, shutterSound: false, skipProcessing: false };
+  if (camera.takePictureAsync) return camera.takePictureAsync(options);
+  if (camera.takePicture) return camera.takePicture(options);
+  return null;
+}
 
 function bytesFromBase64(value: string) {
   const clean = value.replace(/^data:image\/\w+;base64,/, "");
@@ -57,25 +74,28 @@ export function useNeckWatch(
     const timer = setInterval(() => {
       if (stopped || busy) return;
       const camera = cameraRef.current;
-      if (!camera?.takePicture) {
+      if (!camera || !canShoot(camera)) {
         setHint(HINT.lost);
         return;
       }
       busy = true;
       void (async () => {
         try {
-          const picture = await camera.takePicture({
-            quality: 0.05,
-            base64: true,
-            shutterSound: false,
-            skipProcessing: true,
-          });
+          const picture = await shoot(camera);
+          if (!picture) {
+            setHint(HINT.lost);
+            return;
+          }
           void discard(picture.uri);
           if (!picture.base64) {
             setHint(HINT.lost);
             return;
           }
           const decoded = decode(bytesFromBase64(picture.base64), { useTArray: true, formatAsRGBA: true });
+          if (decoded.width * decoded.height > 2_500_000) {
+            setHint(HINT.lost);
+            return;
+          }
           const gray = downsample(decoded.data, decoded.width, decoded.height, 48, 64);
           const result = watch.current.push(gray, 48, 64, Date.now());
           if (result.kind === "lost") {

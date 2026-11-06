@@ -24,6 +24,14 @@ const mocks = vi.hoisted(() => ({
     stop: vi.fn(async () => {}),
   },
 }));
+vi.mock("expo-file-system", () => ({
+  File: class {
+    constructor(_uri: string) {}
+    async arrayBuffer() {
+      return new Uint8Array(64).buffer;
+    }
+  },
+}));
 vi.mock("expo-constants", () => ({
   default: { expoConfig: null, expoGoConfig: null },
 }));

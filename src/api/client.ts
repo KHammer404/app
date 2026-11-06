@@ -99,8 +99,62 @@ export type TrendPoint = {
 
 type FilePayload = { uri: string; name: string; type: string };
 
+export type WavClip = { uri: string; bytes?: Uint8Array | null };
+
 function file(uri: string, name: string): FilePayload {
-  return { uri, name, type: "audio/wav" };
+  const normalized =
+    uri.startsWith("file:") || uri.startsWith("content:") || uri.startsWith("ph:") ? uri : `file://${uri}`;
+  return { uri: normalized, name, type: "audio/wav" };
+}
+
+function ascii(value: string) {
+  const out = new Uint8Array(value.length);
+  for (let index = 0; index < value.length; index += 1) out[index] = value.charCodeAt(index) & 0xff;
+  return out;
+}
+
+function multipartWav(parts: { name: string; filename: string; data: Uint8Array }[]) {
+  const boundary = `----swallow${Date.now().toString(16)}`;
+  const chunks: Uint8Array[] = [];
+  for (const part of parts) {
+    chunks.push(
+      ascii(
+        `--${boundary}\r\nContent-Disposition: form-data; name="${part.name}"; filename="${part.filename}"\r\nContent-Type: audio/wav\r\n\r\n`,
+      ),
+    );
+    chunks.push(part.data);
+    chunks.push(ascii("\r\n"));
+  }
+  chunks.push(ascii(`--${boundary}--\r\n`));
+  const body = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+  let offset = 0;
+  for (const chunk of chunks) {
+    body.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return { body, contentType: `multipart/form-data; boundary=${boundary}` };
+}
+
+async function postWav<T>(path: string, parts: { name: string; filename: string; clip: WavClip }[]) {
+  const binary = parts.every((part) => (part.clip.bytes?.byteLength ?? 0) > 44);
+  if (binary) {
+    const packed = multipartWav(
+      parts.map((part) => ({ name: part.name, filename: part.filename, data: part.clip.bytes as Uint8Array })),
+    );
+    try {
+      return await request<T>(path, {
+        method: "POST",
+        headers: { "Content-Type": packed.contentType },
+        body: packed.body,
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "";
+      if (message !== "Network request failed" && message !== "REQUEST_FAILED") throw error;
+    }
+  }
+  const body = new FormData();
+  for (const part of parts) body.append(part.name, file(part.clip.uri, part.filename) as unknown as Blob);
+  return request<T>(path, { method: "POST", body });
 }
 
 async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
@@ -156,12 +210,11 @@ export const api = {
   endSession(id: string) {
     return request(`/sessions/${id}/end`, { method: "POST" });
   },
-  baseline(id: string, uris: string[]) {
-    const body = new FormData();
-    uris.forEach((uri, index) => {
-      body.append(`clip_${index + 1}`, file(uri, `clip_${index + 1}.wav`) as unknown as Blob);
-    });
-    return request<BaselineResult>(`/sessions/${id}/baseline`, { method: "POST", body });
+  baseline(id: string, clips: WavClip[]) {
+    return postWav<BaselineResult>(
+      `/sessions/${id}/baseline`,
+      clips.map((clip, index) => ({ name: `clip_${index + 1}`, filename: `clip_${index + 1}.wav`, clip })),
+    );
   },
   swallow(id: string, trigger: "auto" | "manual" | "periodic", confidence?: number, requestVoice = true) {
     return request<SwallowEvent>(`/sessions/${id}/swallow-events`, {
@@ -174,10 +227,8 @@ export const api = {
       }),
     });
   },
-  voice(eventId: string, uri: string) {
-    const body = new FormData();
-    body.append("clip", file(uri, "clip.wav") as unknown as Blob);
-    return request<Analysis>(`/events/${eventId}/voice-clip`, { method: "POST", body });
+  voice(eventId: string, clip: WavClip) {
+    return postWav<Analysis>(`/events/${eventId}/voice-clip`, [{ name: "clip", filename: "clip.wav", clip }]);
   },
   skip(eventId: string) {
     return request<Analysis>(`/events/${eventId}/skip`, { method: "POST" });

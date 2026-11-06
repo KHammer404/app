@@ -259,17 +259,19 @@ export class SwallowWatch {
   private width = 0;
   private history: Sample[] = [];
   private cooldownUntil = 0;
+  private missed = 0;
 
   push(frame: Float32Array, width: number, height: number, now: number): WatchResult {
     if (meanLuma(frame) < 0.08) {
-      this.reset();
+      this.noteMiss();
       return { kind: "lost" };
     }
     const face = findFace(gradients(frame, width, height), width, height);
     if (!face) {
-      this.reset();
+      this.noteMiss();
       return { kind: "lost" };
     }
+    this.missed = 0;
     const fitted = clipBox(face, width, height);
     const center = (fitted.x0 + fitted.x1) / 2 / width;
     if (Math.abs(center - 0.5) > 0.22) return { kind: "idle", note: "turn" };
@@ -307,8 +309,14 @@ export class SwallowWatch {
     return { kind: "swallow", confidence };
   }
 
+  private noteMiss() {
+    this.missed += 1;
+    if (this.missed > 4) this.reset();
+  }
+
   private reset() {
     this.previous = null;
     this.history = [];
+    this.missed = 0;
   }
 }

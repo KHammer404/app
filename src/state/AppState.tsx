@@ -162,7 +162,7 @@ function useAppController() {
     modeRef = useRef<"baseline" | "voice">("baseline"),
     sessionRef = useRef<string | null>(null),
     eventRef = useRef<string | null>(null),
-    clipsRef = useRef<string[]>([]),
+    clipsRef = useRef<{ uri: string; bytes: Uint8Array | null }[]>([]),
     socketRef = useRef<WebSocket | null>(null);
   const previousPath = useRef(path);
   const capture = useWavCapture((level) => {
@@ -328,10 +328,9 @@ function useAppController() {
       if (!recordingRef.current) return;
       recordingRef.current = false;
       clearVoiceTimers();
-      let uri = "";
+      let clip: { uri: string; bytes: Uint8Array | null } | null = null;
       try {
-        const captured = await capture.end();
-        uri = captured.uri;
+        clip = await capture.end();
       } catch {
         if (mounted.current) {
           setRecording(false);
@@ -339,12 +338,12 @@ function useAppController() {
         }
         return;
       }
-      if (!mounted.current) return;
+      if (!mounted.current || !clip) return;
       setRecording(false);
       setVoiceSeconds(2);
       if (!success || !sessionRef.current) return;
       if (modeRef.current === "baseline") {
-        clipsRef.current.push(uri);
+        clipsRef.current.push(clip);
         if (clipsRef.current.length < 3) {
           setBaselineStep(clipsRef.current.length + 1);
           setVoiceSeconds(0);
@@ -360,18 +359,17 @@ function useAppController() {
           if (!mounted.current) return;
           setLearning(Boolean(baseline.profile_learning));
           if (!baseline.stable) {
-            modeRef.current = "baseline";
-            setPopup("baseline");
             notify(
-              "기준 음성을 다시 녹음해 주세요",
+              "기준 음성은 이 기기에 남았어요",
               baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
-                "세 번의 아~가 고르지 않아요.",
+                "세 번의 아~가 고르지 않아도 모니터링은 이어갑니다.",
             );
           }
         } catch {
-          modeRef.current = "baseline";
-          setPopup("baseline");
-          notify("기준 음성을 보내지 못했어요", "서버 연결을 확인하고 다시 녹음해 주세요.");
+          notify(
+            "기준 음성을 보내지 못했어요",
+            "모니터링 화면은 유지됩니다. 서버 연결을 확인해 주세요.",
+          );
         }
         return;
       }
@@ -379,7 +377,7 @@ function useAppController() {
       if (!eventId) return;
       setPopup("analyzing");
       try {
-        const result = await api.voice(eventId, uri);
+        const result = await api.voice(eventId, clip);
         if (mounted.current) applyAnalysis(result);
       } catch {
         if (mounted.current) {
@@ -393,7 +391,8 @@ function useAppController() {
   useEffect(() => {
     const sub = NativeAppState.addEventListener("change", (state) => {
       setActive(state === "active");
-      if (state !== "active" && recordingRef.current) void stopVoice(false);
+      // iOS는 마이크가 켜질 때 inactive를 보낸다. 이때 녹음을 버리면 기준 음성 단계가 끝나지 않는다.
+      if (state === "background" && recordingRef.current) void stopVoice(false);
     });
     return () => sub.remove();
   }, [stopVoice]);
