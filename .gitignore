@@ -39,3 +39,12 @@ yarn-error.*
 # generated native folders
 /ios
 /android
+modules/**/android/build/
+modules/**/android/.cxx/
+modules/**/android/.gradle/
+
+# Reproducible public native assets (python scripts/prepare_vision.py [--ios])
+.vision-cache/
+modules/swallow-vision/android/src/main/assets/*.task
+modules/swallow-vision/ios/Resources/*.task
+modules/swallow-vision/ios/Frameworks/

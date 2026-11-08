@@ -11,7 +11,7 @@ import { router, usePathname } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions } from "expo-camera";
 
-import { api, assetUrl, REASON_TEXT, SLOT_MEAL, socketUrl, type SessionReport } from "../api/client";
+import { api, assetUrl, isDeviceAnalysis, REASON_TEXT, SLOT_MEAL, socketUrl, type SessionReport } from "../api/client";
 import {
   CAREGIVER_KEY,
   DEFAULT_CAREGIVER,
@@ -134,6 +134,7 @@ function useAppController() {
     [voices, setVoices] = useState(0),
     [swallows, setSwallows] = useState(0);
   const [popup, setPopup] = useState<Popup>(null),
+    [promptTrigger, setPromptTrigger] = useState<"auto" | "manual" | "periodic">("manual"),
     [baselineStep, setBaselineStep] = useState(1),
     [reasonText, setReasonText] = useState(""),
     [learning, setLearning] = useState(false),
@@ -258,11 +259,13 @@ function useAppController() {
     else if (running && path !== "/monitor") router.replace("/monitor");
     else if (!running && path === "/monitor") router.replace("/prepare");
   }, [loaded, name, path, running]);
-  const applied = useRef("");
-  const applyAnalysis = useCallback((result: { state: string; reason_codes?: string[]; profile_learning?: boolean }) => {
-    const token = `${eventRef.current}:${result.state}:${(result.reason_codes ?? []).join(",")}`;
-    if (applied.current === token) return;
-    applied.current = token;
+  const applied = useRef(new Set<string>());
+  const applyAnalysis = useCallback((result: { result_id?: string | null; event_id?: string; state: string; reason_codes?: string[]; profile_learning?: boolean }) => {
+    if (result.event_id && result.event_id !== eventRef.current) return;
+    const token = result.result_id ?? `${eventRef.current}:${result.state}:${(result.reason_codes ?? []).join(",")}`;
+    if (applied.current.has(token)) return;
+    applied.current.add(token);
+    if (applied.current.size > 256) applied.current.delete(applied.current.values().next().value!);
     const reason = (result.reason_codes ?? []).map((code) => REASON_TEXT[code] ?? code).join(" ");
     setReasonText(reason);
     if (result.profile_learning) setLearning(true);
@@ -288,16 +291,19 @@ function useAppController() {
   const openSocket = useCallback(
     (sessionId: string) => {
       socketRef.current?.close();
+      if (isDeviceAnalysis()) return;
       try {
         const socket = new WebSocket(socketUrl(sessionId));
         socketRef.current = socket;
         socket.onmessage = (message) => {
           const payload = JSON.parse(String(message.data)) as {
             type: string;
+            result_id?: string | null;
             event_id?: string;
             state?: string;
             reason_codes?: string[];
             open_event_id?: string | null;
+            last_event_id?: string | null;
             phase?: string;
           };
           if (payload.type === "PROMPT_VOICE" && payload.event_id) {
@@ -305,16 +311,19 @@ function useAppController() {
             modeRef.current = "voice";
             setPopup("voice");
           } else if (payload.type === "RESULT" && payload.state) {
-            applyAnalysis({ state: payload.state, reason_codes: payload.reason_codes });
+            applyAnalysis({ result_id: payload.result_id, event_id: payload.event_id, state: payload.state, reason_codes: payload.reason_codes });
           } else if (payload.type === "ALERT") {
             setPopup("caution");
-          } else if (payload.type === "RESYNC" && payload.open_event_id) {
-            eventRef.current = payload.open_event_id;
-            if (payload.phase === "AWAITING_VOICE" || payload.phase === "RECHECK") {
+          } else if (payload.type === "RESYNC") {
+            if (payload.open_event_id && (payload.phase === "AWAITING_VOICE" || payload.phase === "RECHECK")) {
+              eventRef.current = payload.open_event_id;
               modeRef.current = "voice";
               setPopup("voice");
             }
-            if (payload.phase === "AWAITING_RESOLVE") setPopup("caution");
+            if (payload.phase === "AWAITING_RESOLVE" && payload.last_event_id) {
+              eventRef.current = payload.last_event_id;
+              setPopup("caution");
+            }
           }
         };
       } catch {
@@ -338,10 +347,10 @@ function useAppController() {
         }
         return;
       }
-      if (!mounted.current || !clip) return;
+      if (!mounted.current || !clip) { clip?.bytes?.fill(0); return; }
       setRecording(false);
       setVoiceSeconds(2);
-      if (!success || !sessionRef.current) return;
+      if (!success || !sessionRef.current) { clip.bytes?.fill(0); return; }
       if (modeRef.current === "baseline") {
         clipsRef.current.push(clip);
         if (clipsRef.current.length < 3) {
@@ -353,28 +362,33 @@ function useAppController() {
         const sessionId = sessionRef.current;
         setBaselineStep(1);
         setVoiceSeconds(0);
-        setPopup(null);
+        setPopup("analyzing");
         try {
           const baseline = await api.baseline(sessionId, clips);
           if (!mounted.current) return;
           setLearning(Boolean(baseline.profile_learning));
+          if (baseline.stable) setPopup(null);
           if (!baseline.stable) {
+            setPopup("baseline");
             notify(
-              "기준 음성은 이 기기에 남았어요",
+              "기준 음성을 다시 녹음해 주세요",
               baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
-                "세 번의 아~가 고르지 않아도 모니터링은 이어갑니다.",
+                "세 번의 아~를 일정한 크기로 녹음해야 비교를 시작할 수 있어요.",
             );
           }
         } catch {
+          setPopup("baseline");
           notify(
-            "기준 음성을 보내지 못했어요",
-            "모니터링 화면은 유지됩니다. 서버 연결을 확인해 주세요.",
+            "기준 음성을 분석하지 못했어요",
+            "마이크를 확인하고 세 번 다시 녹음해 주세요.",
           );
+        } finally {
+          clips.forEach((value) => value.bytes?.fill(0));
         }
         return;
       }
       const eventId = eventRef.current;
-      if (!eventId) return;
+      if (!eventId) { clip.bytes?.fill(0); return; }
       setPopup("analyzing");
       try {
         const result = await api.voice(eventId, clip);
@@ -382,8 +396,10 @@ function useAppController() {
       } catch {
         if (mounted.current) {
           setPopup("voice");
-          notify("발성을 분석하지 못했어요", "서버 연결을 확인하고 다시 녹음해 주세요.");
+          notify("발성을 분석하지 못했어요", "녹음 상태를 확인하고 다시 녹음해 주세요.");
         }
+      } finally {
+        clip.bytes?.fill(0);
       }
     },
     [applyAnalysis, capture, clearVoiceTimers, notify],
@@ -478,13 +494,13 @@ function useAppController() {
       openSocket(session.id);
       router.replace("/monitor");
     } catch {
-      notify("식사를 시작하지 못했어요", "서버 주소와 연결을 확인해 주세요.");
+      notify("식사를 시작하지 못했어요", "분석 동의와 기기 저장 공간을 확인해 주세요.");
     } finally {
       voiceBusy.current = false;
       setBusy(false);
     }
   }
-  async function startVoice() {
+  const startVoice = useCallback(async () => {
     if (voiceBusy.current || recordingRef.current) return;
     if (popup !== "baseline" && popup !== "voice" && popup !== "recheck" && popup !== "unanalyzable")
       return;
@@ -506,7 +522,7 @@ function useAppController() {
       voiceBusy.current = false;
       setBusy(false);
     }
-  }
+  }, [popup, capture, clearVoiceTimers, notify, stopVoice]);
   const voicePrompted = useRef<string | null>(null);
   useEffect(() => {
     if (popup !== "voice") {
@@ -517,7 +533,7 @@ function useAppController() {
     if (voicePrompted.current === eventId || recordingRef.current || voiceBusy.current) return;
     voicePrompted.current = eventId;
     void startVoice();
-  }, [popup]);
+  }, [popup, startVoice]);
   async function redoVoice() {
     if (popup !== "voice" && popup !== "recheck" && popup !== "unanalyzable") return;
     if (recordingRef.current) await stopVoice(false);
@@ -532,9 +548,10 @@ function useAppController() {
     try {
       const event = await api.swallow(sessionRef.current, trigger, confidence, choice.request);
       if (!event.merged) autoSeen.current = choice.autoCount;
-      setSwallows((value) => value + (event.merged ? 0 : 1));
+      setSwallows((value) => value + (event.merged || trigger === "periodic" ? 0 : 1));
       if (!event.prompt) return;
       eventRef.current = event.id;
+      setPromptTrigger(trigger);
       modeRef.current = "voice";
       setReasonText("");
       setPopup("voice");
@@ -666,6 +683,7 @@ function useAppController() {
     voices,
     swallows,
     popup,
+    promptTrigger,
     setPopup,
     baselineStep,
     reasonText,

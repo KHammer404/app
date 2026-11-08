@@ -1,0 +1,7 @@
+{
+  "name": "swallow-vision",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local MediaPipe landmark and OpenCV motion extraction",
+  "license": "MIT"
+}

@@ -1,4 +1,5 @@
 import Constants from "expo-constants";
+import { deviceApi } from "../analysis/local";
 
 import type { Meal } from "../utils/mealTime";
 
@@ -29,6 +30,7 @@ export const SLOT_MEAL: Record<string, Meal> = {
 };
 
 export type Analysis = {
+  result_id?: string | null;
   event_id: string;
   state: string;
   phase: string;
@@ -191,7 +193,7 @@ export function socketUrl(sessionId: string) {
   return `${base}/ws/sessions/${sessionId}?token=${encodeURIComponent(API_TOKEN)}`;
 }
 
-export const api = {
+const serverApi = {
   consent(item: "voice_analysis" | "research_optional", granted: boolean) {
     return request("/me/consents", {
       method: "POST",
@@ -254,6 +256,17 @@ export const api = {
     return request<{ period: string; points: TrendPoint[] }>(`/reports/trend?period=${period}`);
   },
 };
+
+// Server mode is an explicit research/development opt-in; never fall back to
+// uploading a voice clip when a device-side analysis fails.
+export function isDeviceAnalysis() {
+  return process.env.EXPO_PUBLIC_ANALYSIS_MODE !== "server";
+}
+export const api = new Proxy(serverApi, {
+  get(target, key) {
+    return Reflect.get(isDeviceAnalysis() ? deviceApi : target, key);
+  },
+});
 
 export const REASON_TEXT: Record<string, string> = {
   VOICED_TOO_SHORT: "소리가 너무 짧아요. 조금 더 길게 아~ 해주세요.",
