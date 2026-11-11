@@ -1,7 +1,6 @@
-// 기기 안에서만 삼킴 후보를 낸다.
-// 얼굴 상자(턱·광대)로 목 ROI를 잡고, Lucas-Kanade 광류로 머리 움직임을 뺀 뒤
-// 1D-CNN과 dilation TCN이 후두의 상승-하강 펄스를 고른다.
-// Expo Go에는 MediaPipe·OpenCV 네이티브 런타임이 없어 같은 단계를 JS로 실행한다.
+// Legacy heuristic retained for regression comparison only; not used by useNeckWatch.
+// These fixed filters are not trained CNN/TCN weights and the edge box is not
+// a MediaPipe face landmark detector. The active pipeline uses native.ts + temporal.ts.
 
 export type WatchNote = "watch" | "mouth" | "turn";
 export type WatchResult =
@@ -55,7 +54,7 @@ function gradients(frame: Float32Array, width: number, height: number) {
   return mag;
 }
 
-/** 정면 얼굴의 턱·광대 경계. MediaPipe chin(152), jaw(234/454)에 해당하는 상자. */
+/** Heuristic edge box; no anatomical landmark identity is guaranteed. */
 function findFace(mag: Float32Array, width: number, height: number): Box | null {
   const xStart = Math.floor(width * 0.1);
   const xEnd = Math.ceil(width * 0.9);
@@ -222,7 +221,7 @@ function conv(series: number[][], channel: number, kernel: number[], dilation = 
   return best;
 }
 
-/** 후두가 올라갔다 내려오는 짧은 수직 펄스. 1D-CNN과 dilation 2 TCN. */
+/** Fixed pulse filters, without learned parameters. */
 function classify(series: number[][]) {
   const rise = [0.15, -1.05, 0.75];
   const larynx = conv(series, 0, rise);

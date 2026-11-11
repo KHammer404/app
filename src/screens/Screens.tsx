@@ -341,7 +341,7 @@ export function MonitorScreen() {
   const shutter = useRef(null);
   const hint = useNeckWatch(
     shutter,
-    app.running && app.popup == null && !app.recording,
+    app.running && app.active && app.popup == null && !app.recording,
     (trigger, confidence) => {
       void app.markSwallow(trigger, confidence);
     },
@@ -557,7 +557,7 @@ export function MoreScreen() {
         onPress={() =>
           app.notify(
             "개인정보 처리 안내",
-            "이름과 보호자 설정은 이 기기에 저장됩니다. 카메라 영상은 서버로 보내지 않아요. 발성 원본은 분석 후 서버에서 지워요.",
+            "이름과 보호자 설정, 식사 기록은 이 기기에 저장됩니다. 기본 모드에서는 영상과 음성을 외부로 보내지 않고 기기에서 분석해요. 음성은 메모리에서 처리하고 원본 파일을 저장하지 않아요.",
           )
         }
       />
@@ -567,7 +567,7 @@ export function MoreScreen() {
         onPress={() =>
           app.setInfo({
             title: "식사 기록 삭제",
-            body: "이 기기와 서버의 식사 보고서를 모두 삭제할까요? 이름은 유지됩니다.",
+            body: "저장된 식사 보고서를 모두 삭제할까요? 이름은 유지됩니다.",
             action: "delete",
           })
         }

@@ -1,0 +1,33 @@
+// Optional local-network workaround. Uses Google's own download CDN, without
+// changing project repositories for normal builds or trusting a third-party mirror.
+def redirectGoogle = { repository ->
+  if (repository instanceof org.gradle.api.artifacts.repositories.MavenArtifactRepository) {
+    def address = repository.url.toString()
+    if (address.startsWith('https://dl.google.com/') || address.startsWith('https://maven.google.com')) {
+      repository.setUrl('https://redirector.gvt1.com/edgedl/android/maven2/')
+      // Do not send Maven Central / Gradle Portal-only groups to this endpoint:
+      // missing CDN artifacts may redirect to the unreachable original host.
+      repository.content {
+        includeGroupByRegex('com\\.android.*')
+        includeGroupByRegex('androidx\\..*')
+        includeGroupByRegex('com\\.google\\.android.*')
+        includeGroupByRegex('com\\.google\\.mediapipe.*')
+        includeGroupByRegex('com\\.google\\.firebase.*')
+        includeGroupByRegex('com\\.google\\.mlkit.*')
+        includeGroupByRegex('com\\.google\\.testing.*')
+        includeGroupByRegex('com\\.google\\.test\\.platform.*')
+        includeGroup('com.google.prefab')
+        includeGroupByRegex('org\\.chromium.*')
+        includeGroupByRegex('android\\.arch.*')
+      }
+    }
+  }
+}
+gradle.beforeSettings { settings ->
+  settings.pluginManagement.repositories.all(redirectGoogle)
+  settings.dependencyResolutionManagement.repositories.all(redirectGoogle)
+}
+allprojects { project ->
+  project.repositories.all(redirectGoogle)
+  project.buildscript.repositories.all(redirectGoogle)
+}

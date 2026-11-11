@@ -88,7 +88,7 @@ function SessionModal() {
             입안을 비운 뒤 2초 동안 아~ 소리를 내주세요.
           </T>
           {app.learning && (
-            <T style={[s.caption, s.center]}>기준을 학습 중이에요.</T>
+            <T style={[s.caption, s.center]}>개인 기준으로 비교해요.</T>
           )}
           <RecordingWaveform
             recording={app.recording}
@@ -110,11 +110,15 @@ function SessionModal() {
               ? "평소와 조금 달라요"
               : app.popup === "unanalyzable"
                 ? "소리를 잘 듣지 못했어요"
-                : "삼킴이 감지되었습니다."}
+                : app.promptTrigger === "periodic"
+                  ? "목소리를 확인할 시간이에요"
+                  : app.promptTrigger === "auto"
+                    ? "삼킴 후보가 감지됐어요"
+                    : "목소리를 확인해 주세요"}
           </T>
           <T style={[s.caption, s.center]}>
             {app.popup === "recheck"
-              ? "가볍게 기침하고 2초 동안 아~ 소리를 내주세요"
+              ? "같은 자세와 목소리 크기로 2초 동안 아~ 소리를 다시 내주세요"
               : app.popup === "unanalyzable"
                 ? app.reasonText || "2초 동안 아~ 소리를 다시 내주세요"
                 : "2초동안 “아~” 소리를 내주세요"}
@@ -156,10 +160,9 @@ function SessionModal() {
           <View style={s.statusCircle}>
             <Icon name="check" color="white" size={36} />
           </View>
-          <T style={[s.modalTitle, { color: TEAL }]}>정상적으로 삼킴을 완료했어요</T>
+          <T style={[s.modalTitle, { color: TEAL }]}>기준 음성과 큰 차이가 없어요</T>
           <T style={[s.caption, s.center]}>
-            간혹 미세한 이물질이 남아있을 수 있으니, 더 안전한 마무리를 위해 가볍게 기침을 한두
-            번 해보시는 것을 추천해요.
+            이번 녹음에서 큰 음성 변화가 관찰되지 않았어요. 이 결과는 흡인이 없거나 삼킴이 안전하다는 뜻은 아니에요.
           </T>
           <Button compact title="확인" onPress={() => app.setPopup(null)} />
         </>
@@ -169,11 +172,11 @@ function SessionModal() {
           <View style={[s.statusCircle, { backgroundColor: "#FDECEC" }]}>
             <Icon name="alert-triangle" color={RED} size={34} />
           </View>
-          <T style={[s.modalTitle, { color: RED }]}>기도 흡인이 의심돼요</T>
+          <T style={[s.modalTitle, { color: RED }]}>목소리 변화가 반복됐어요</T>
           <T style={[s.modalTitle, { color: RED, fontSize: 20 }]}>
-            숨을 크게 들이쉬고 강하게 기침을 하세요
+            식사를 잠시 멈추고 상태를 확인해 주세요. 음성 변화만으로 흡인 여부를 알 수는 없어요.
           </T>
-          <Button title="처치를 완료했어요" danger onPress={() => void app.resolveCaution()} />
+          <Button title="상태를 확인했어요" danger onPress={() => void app.resolveCaution()} />
         </>
       )}
     </AnimatedDialog>

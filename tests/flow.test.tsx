@@ -11,11 +11,17 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import * as Screens from "../src/screens/Screens";
 import { CaregiverScreen } from "../src/screens/CaregiverScreen";
 import { TrendScreen } from "../src/screens/TrendScreen";
+import { sineWav } from "./helpers/wav";
+import type { AudioStreamBuffer } from "expo-audio";
+vi.mock("../src/swallow/native", () => ({ nativeVision: null }));
 
 const mocks = vi.hoisted(() => ({
   storage: new Map<string, string>(),
   cameraGranted: true,
   microphoneGranted: true,
+  pcm: new Uint8Array(100),
+  onBuffer: null as ((buffer: AudioStreamBuffer) => void) | null,
+  stream: { start: vi.fn(async () => {}), stop: vi.fn() },
   route: "/",
   listeners: new Set<() => void>(),
   recorder: {
@@ -93,15 +99,13 @@ vi.mock("expo-camera", () => ({
 vi.mock("expo-audio", () => ({
   RecordingPresets: { HIGH_QUALITY: {} },
   useAudioRecorder: () => mocks.recorder,
-  useAudioStream: () => ({
+  useAudioStream: (options: { onBuffer: (buffer: AudioStreamBuffer) => void }) => {
+    mocks.onBuffer = options.onBuffer;
+    return {
     isStreaming: false,
-    stream: {
-      start: async () => {},
-      startFileRecordingAsync: async () => ({ uri: "file://clip.wav" }),
-      stopFileRecordingAsync: async () => ({ uri: "file://clip.wav" }),
-      stop: () => {},
-    },
-  }),
+    stream: mocks.stream,
+    };
+  },
   AudioModule: {
     requestRecordingPermissionsAsync: async () => ({
       granted: mocks.microphoneGranted,
@@ -181,6 +185,7 @@ async function finish() {
   await click("식사 모니터링 종료하기");
 }
 beforeEach(() => {
+  vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "server");
   vi.useFakeTimers();
   vi.setSystemTime(new Date(2026, 10, 2, 12, 0, 0));
   mocks.route = "/";
@@ -190,6 +195,10 @@ beforeEach(() => {
   mocks.cameraGranted = true;
   mocks.microphoneGranted = true;
   vi.clearAllMocks();
+  mocks.pcm = new Uint8Array(100);
+  mocks.stream.start.mockImplementation(async () => {
+    mocks.onBuffer?.({ data: mocks.pcm.slice().buffer, sampleRate: 32000, channels: 1, timestamp: 0 });
+  });
   const sessions = new Map<string, { id: string; meal: string; started: string; events: { id: string; state: string | null; at: string }[] }>();
   vi.stubGlobal("WebSocket", class {
     onmessage: ((event: { data: string }) => void) | null = null;
@@ -318,6 +327,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)", () => {
+  it("기본 기기 모드에서 가입부터 음성 비교와 보고서까지 네트워크 없이 실행한다", async () => {
+    vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "device");
+    mocks.storage.delete("@samkim/profile");
+    mocks.pcm = sineWav().slice(44);
+    const fetch = vi.fn(async () => { throw new Error("NETWORK_DISABLED"); });
+    const socket = vi.fn(() => { throw new Error("NETWORK_DISABLED"); });
+    vi.stubGlobal("fetch", fetch); vi.stubGlobal("WebSocket", socket);
+    await mount();
+    fireEvent.change(screen.getByLabelText("사용자 이름"), { target: { value: "기기테스트" } });
+    await check("개인정보 수집 및 이용 동의");
+    await check("카메라 및 마이크 권한 사용 동의");
+    await click("삼킴지킴이 시작하기");
+    await start();
+    await click("방금 삼켰어요");
+    await advance(2000);
+    expect(screen.getByText("기준 음성과 큰 차이가 없어요")).toBeTruthy();
+    await click("확인");
+    await finish();
+    expect(screen.getByText("식사 타임라인")).toBeTruthy();
+    expect(fetch).not.toHaveBeenCalled();
+    expect(socket).not.toHaveBeenCalled();
+    expect(mocks.storage.get("@samkim/device-analysis/v1")).toContain('"no_change"');
+  });
   it("여러 알림을 실제 시간 비율에 배치하고 선택한 알림의 시각을 보여준다", async () => {
     mocks.storage.set(
       "@samkim/records",
@@ -395,17 +427,17 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await tab("더보기");
     await click("개인정보 처리 안내");
     expect(
-      screen.getByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
+      screen.getByText(/이름과 보호자 설정, 식사 기록은 이 기기에 저장됩니다/),
     ).toBeTruthy();
     await click("확인");
     await advance(200);
     expect(
-      screen.queryByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
+      screen.queryByText(/이름과 보호자 설정, 식사 기록은 이 기기에 저장됩니다/),
     ).toBeNull();
     await click("앱 버전");
     expect(screen.getByText("버전 0.2.0")).toBeTruthy();
     expect(
-      screen.queryByText(/이름과 보호자 설정은 이 기기에 저장됩니다/),
+      screen.queryByText(/이름과 보호자 설정, 식사 기록은 이 기기에 저장됩니다/),
     ).toBeNull();
     await click("확인");
     await advance(200);
@@ -508,7 +540,7 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await start();
     await click("방금 삼켰어요");
     await advance(2000);
-    expect(screen.getByText("정상적으로 삼킴을 완료했어요")).toBeTruthy();
+    expect(screen.getByText("기준 음성과 큰 차이가 없어요")).toBeTruthy();
     expect(screen.queryByText("흡인이 없다는 뜻은 아니에요.")).toBeNull();
     await click("확인");
     await finish();

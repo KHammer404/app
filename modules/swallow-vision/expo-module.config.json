@@ -1,0 +1,5 @@
+{
+  "platforms": ["apple", "android"],
+  "apple": { "modules": ["SwallowVisionModule"] },
+  "android": { "modules": ["expo.modules.swallowvision.SwallowVisionModule"] }
+}

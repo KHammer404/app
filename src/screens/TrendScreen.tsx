@@ -28,6 +28,7 @@ export function TrendScreen() {
   const [period, setPeriod] = useState<(typeof PERIODS)[number][0]>("day");
   const [points, setPoints] = useState<TrendPoint[]>([]);
   const [error, setError] = useState("");
+  const [loading, setLoading] = useState(true);
   useEffect(() => {
     let stopped = false;
     void api
@@ -37,6 +38,9 @@ export function TrendScreen() {
       })
       .catch(() => {
         if (!stopped) setError("추이를 불러오지 못했어요. 연결을 확인해 주세요.");
+      })
+      .finally(() => {
+        if (!stopped) setLoading(false);
       });
     return () => {
       stopped = true;
@@ -59,7 +63,9 @@ export function TrendScreen() {
             title={label}
             secondary={period !== value}
             onPress={() => {
+              if (period === value) return;
               setError("");
+              setLoading(true);
               setPeriod(value);
             }}
           />
@@ -87,7 +93,7 @@ export function TrendScreen() {
           </View>
         </View>
       ))}
-      {!points.length && !error && <T style={[s.caption, { color: GRAY }]}>불러오는 중…</T>}
+      {!points.length && !error && <T style={[s.caption, { color: GRAY }]}>{loading ? "불러오는 중…" : "아직 식사 기록이 없어요."}</T>}
       <View style={s.spacer} />
       <Button title="홈으로" secondary onPress={() => router.replace("/home")} />
     </Page>

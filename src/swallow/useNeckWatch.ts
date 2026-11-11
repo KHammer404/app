@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import { decode } from "jpeg-js";
-
-import { downsample, SwallowWatch } from "./detect";
+import bundled from "../../assets/models/swallow-tcn.json";
+import { nativeVision } from "./native";
+import { TemporalWatch, validateModel } from "./temporal";
 
 type Shutter = {
   takePicture?: (options: PictureOptions) => Promise<Shot>;
@@ -29,14 +29,6 @@ function shoot(camera: Shutter) {
   return null;
 }
 
-function bytesFromBase64(value: string) {
-  const clean = value.replace(/^data:image\/\w+;base64,/, "");
-  const binary = globalThis.atob(clean);
-  const bytes = new Uint8Array(binary.length);
-  for (let index = 0; index < binary.length; index += 1) bytes[index] = binary.charCodeAt(index);
-  return bytes;
-}
-
 async function discard(uri?: string) {
   if (!uri) return;
   try {
@@ -49,7 +41,6 @@ async function discard(uri?: string) {
 
 const HINT = {
   lost: "얼굴과 목이 보이지 않아요",
-  mouth: "씹거나 말하는 동안에는 삼킴으로 세지 않아요",
   turn: "얼굴을 화면 가운데로 맞춰 주세요",
 };
 
@@ -60,7 +51,6 @@ export function useNeckWatch(
   periodicMs = 20000,
 ) {
   const [hint, setHint] = useState<string | null>(null);
-  const watch = useRef(new SwallowWatch());
   const onSwallowRef = useRef(onSwallow);
   useEffect(() => {
     onSwallowRef.current = onSwallow;
@@ -68,59 +58,84 @@ export function useNeckWatch(
   useEffect(() => {
     if (!enabled) return;
     let stopped = false;
-    let lostAt = 0;
-    let lastPeriodic = 0;
+    let lastPeriodic = Date.now();
     let busy = false;
+    let watch: TemporalWatch | null = null;
+    try {
+      if (bundled.model) watch = new TemporalWatch(validateModel(bundled.model));
+    } catch { /* Invalid or untrained weights must never produce candidates. */ }
+    const classifierNotice = !watch ? "자동 감지는 아직 준비 중이에요. 주기적으로 발성을 확인해요" : null;
+    if (nativeVision) void nativeVision.resetAsync().catch(() => {});
+    const requestPeriodic = () => {
+      if (Date.now() - lastPeriodic >= periodicMs) {
+        lastPeriodic = Date.now();
+        onSwallowRef.current("periodic");
+      }
+    };
     const timer = setInterval(() => {
       if (stopped || busy) return;
+      if (!nativeVision) {
+        setHint("자동 감지에는 전용 앱 빌드가 필요해요. 주기적으로 발성을 확인해요");
+        requestPeriodic();
+        return;
+      }
+      // Landmark/flow tracking is useful and testable before the swallow weights
+      // exist. It must not emit automatic swallow events without that classifier.
+      if (!watch) requestPeriodic();
       const camera = cameraRef.current;
       if (!camera || !canShoot(camera)) {
         setHint(HINT.lost);
+        requestPeriodic();
         return;
       }
       busy = true;
       void (async () => {
         try {
+          const timestamp = Date.now();
           const picture = await shoot(camera);
           if (!picture) {
             setHint(HINT.lost);
+            requestPeriodic();
             return;
           }
           void discard(picture.uri);
           if (!picture.base64) {
             setHint(HINT.lost);
+            requestPeriodic();
             return;
           }
-          const decoded = decode(bytesFromBase64(picture.base64), { useTArray: true, formatAsRGBA: true });
-          if (decoded.width * decoded.height > 2_500_000) {
+          const result = await nativeVision!.analyzeFrameAsync(picture.base64, timestamp);
+          if (stopped) return;
+          if (result.status === "lost") {
+            watch?.reset();
             setHint(HINT.lost);
+            requestPeriodic();
             return;
           }
-          const gray = downsample(decoded.data, decoded.width, decoded.height, 48, 64);
-          const result = watch.current.push(gray, 48, 64, Date.now());
-          if (result.kind === "lost") {
-            if (!lostAt) lostAt = Date.now();
-            setHint(HINT.lost);
-            if (Date.now() - lostAt > 8000 && Date.now() - lastPeriodic > periodicMs) {
-              lastPeriodic = Date.now();
-              onSwallowRef.current("periodic");
-            }
+          if (result.status === "turn") {
+            watch?.reset();
+            setHint(HINT.turn);
+            requestPeriodic();
             return;
           }
-          lostAt = 0;
-          if (result.kind === "swallow") {
+          if (result.status === "warming") { watch?.reset(); setHint(classifierNotice); return; }
+          const confidence = result.features ? watch?.push(result.features, result.timestamp) : null;
+          if (confidence != null) {
             setHint(null);
-            onSwallowRef.current("auto", result.confidence);
+            onSwallowRef.current("auto", confidence);
             return;
           }
-          setHint(result.note === "watch" ? null : HINT[result.note]);
+          setHint(classifierNotice);
         } catch {
-          setHint(HINT.lost);
+          if (stopped) return;
+          watch?.reset();
+          setHint("카메라 분석을 사용할 수 없어 주기적으로 발성을 확인해요");
+          requestPeriodic();
         } finally {
           busy = false;
         }
       })();
-    }, 120);
+    }, 125);
     return () => {
       stopped = true;
       clearInterval(timer);
