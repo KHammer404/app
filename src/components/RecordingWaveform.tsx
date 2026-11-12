@@ -32,7 +32,7 @@ export default function RecordingWaveform({
         accessibilityLabel={`녹음 ${seconds}초 / ${durationMs / 1000}초`}
         style={styles.time}
       >
-        {`00:${String(seconds).padStart(2, "0")}`}
+        {`00:${String(Math.floor(seconds)).padStart(2, "0")}`}
         <T style={styles.total}>{` / 00:${String(durationMs / 1000).padStart(2, "0")}`}</T>
       </T>
       <View

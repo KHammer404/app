@@ -343,25 +343,24 @@ function useAppController() {
       } catch {
         if (mounted.current) {
           setRecording(false);
-          notify("녹음을 완료하지 못했어요", "마이크 연결을 확인하고 다시 녹음해 주세요.");
+          setVoiceSeconds(0);
+          setReasonText("실제 음성이 2초 이상 수집되지 않았어요. 마이크 연결을 확인하고 다시 녹음해 주세요.");
         }
         return;
       }
       if (!mounted.current || !clip) { clip?.bytes?.fill(0); return; }
       setRecording(false);
-      setVoiceSeconds(2);
+      setVoiceSeconds(VOICE_MS / 1000);
       if (!success || !sessionRef.current) { clip.bytes?.fill(0); return; }
       if (modeRef.current === "baseline") {
         clipsRef.current.push(clip);
         if (clipsRef.current.length < 3) {
           setBaselineStep(clipsRef.current.length + 1);
-          setVoiceSeconds(0);
           return;
         }
         const clips = clipsRef.current.splice(0);
         const sessionId = sessionRef.current;
         setBaselineStep(1);
-        setVoiceSeconds(0);
         setPopup("analyzing");
         try {
           const baseline = await api.baseline(sessionId, clips);
@@ -370,18 +369,14 @@ function useAppController() {
           if (baseline.stable) setPopup(null);
           if (!baseline.stable) {
             setPopup("baseline");
-            notify(
-              "기준 음성을 다시 녹음해 주세요",
-              baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
-                "세 번의 아~를 일정한 크기로 녹음해야 비교를 시작할 수 있어요.",
-            );
+            setVoiceSeconds(0);
+            setReasonText(baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
+              "세 번의 아~를 일정한 크기로 다시 녹음해 주세요.");
           }
         } catch {
           setPopup("baseline");
-          notify(
-            "기준 음성을 분석하지 못했어요",
-            "마이크를 확인하고 세 번 다시 녹음해 주세요.",
-          );
+          setVoiceSeconds(0);
+          setReasonText("기준 음성을 분석하지 못했어요. 마이크를 확인하고 세 번 다시 녹음해 주세요.");
         } finally {
           clips.forEach((value) => value.bytes?.fill(0));
         }
@@ -420,11 +415,6 @@ function useAppController() {
     );
     return () => clearInterval(tick);
   }, [running, active]);
-  useEffect(() => {
-    if (!recording) return;
-    const tick = setInterval(() => setVoiceSeconds((value) => Math.min(2, value + 1)), 1000);
-    return () => clearInterval(tick);
-  }, [recording]);
   async function saveName(value: string, research = false) {
     const trimmed = value.trim();
     if (!trimmed) return;
@@ -508,6 +498,7 @@ function useAppController() {
     setBusy(true);
     clearVoiceTimers();
     try {
+      setReasonText("");
       await capture.begin();
       recordingRef.current = true;
       setRecording(true);
@@ -515,7 +506,20 @@ function useAppController() {
       setLevels([]);
       levelAt.current = 0;
       if (popup !== "baseline") modeRef.current = "voice";
-      voiceTimer.current = setTimeout(() => void stopVoice(true), VOICE_MS);
+      const beganAt = Date.now();
+      const checkCapture = () => {
+        if (!recordingRef.current) return;
+        const captured = capture.durationMs();
+        setVoiceSeconds(Math.min(VOICE_MS, captured) / 1000);
+        if (captured >= VOICE_MS && Date.now() - beganAt >= VOICE_MS) {
+          void stopVoice(true);
+        } else if (Date.now() - beganAt >= 6000) {
+          void stopVoice(false);
+        } else {
+          voiceTimer.current = setTimeout(checkCapture, 50);
+        }
+      };
+      voiceTimer.current = setTimeout(checkCapture, 50);
     } catch {
       notify("녹음을 시작할 수 없어요", "마이크 권한과 연결을 확인하고 다시 시도해 주세요.");
     } finally {

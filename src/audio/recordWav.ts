@@ -59,6 +59,10 @@ export function useWavCapture(onLevel?: (level: number) => void) {
     clear();
   }, [stream, clear]);
   return useMemo(() => ({
+    durationMs() {
+      const value = format.current;
+      return value ? size.current / (value.rate * value.channels * 2) * 1000 : 0;
+    },
     async begin() {
       if (active.current) throw new Error("RECORDING_ACTIVE");
       clear();
@@ -77,6 +81,7 @@ export function useWavCapture(onLevel?: (level: number) => void) {
       try {
         if (failure.current) throw new Error(failure.current);
         if (!format.current || !size.current) throw new Error("NO_AUDIO_CAPTURED");
+        if (size.current < format.current.rate * format.current.channels * 2 * 2) throw new Error("AUDIO_TOO_SHORT");
         const bytes = encodePcmWav(chunks.current, format.current.rate, format.current.channels);
         return { uri: "memory://voice.wav", bytes };
       } finally { clear(); }

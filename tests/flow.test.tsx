@@ -195,9 +195,11 @@ beforeEach(() => {
   mocks.cameraGranted = true;
   mocks.microphoneGranted = true;
   vi.clearAllMocks();
-  mocks.pcm = new Uint8Array(100);
+  mocks.pcm = sineWav().slice(44);
   mocks.stream.start.mockImplementation(async () => {
-    mocks.onBuffer?.({ data: mocks.pcm.slice().buffer, sampleRate: 32000, channels: 1, timestamp: 0 });
+    const pcm = mocks.pcm.slice();
+    setTimeout(() => mocks.onBuffer?.({ data: pcm.slice(0, 64000).buffer, sampleRate: 32000, channels: 1, timestamp: 1000 }), 1000);
+    setTimeout(() => mocks.onBuffer?.({ data: pcm.slice(64000).buffer, sampleRate: 32000, channels: 1, timestamp: 2000 }), 2000);
   });
   const sessions = new Map<string, { id: string; meal: string; started: string; events: { id: string; state: string | null; at: string }[] }>();
   vi.stubGlobal("WebSocket", class {
@@ -496,6 +498,39 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     ).toBe("1");
     await advance(1000);
     expect(screen.queryByLabelText("움직이는 녹음 파형")).toBeNull();
+  });
+
+  it("마이크 입력이 늦어져도 실제 PCM 2초를 모은 뒤 세 번째 기준 모달을 닫는다", async () => {
+    vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "device");
+    mocks.stream.start.mockImplementation(async () => {
+      const pcm = sineWav().slice(44);
+      setTimeout(() => mocks.onBuffer?.({ data: pcm.slice(0, 64000).buffer, sampleRate: 32000, channels: 1, timestamp: 1500 }), 1500);
+      setTimeout(() => mocks.onBuffer?.({ data: pcm.slice(64000).buffer, sampleRate: 32000, channels: 1, timestamp: 3000 }), 3000);
+    });
+    // Existing users have already granted analysis consent.
+    mocks.storage.set("@samkim/device-analysis/v1", JSON.stringify({ version: 1, consent: true, sessions: [] }));
+    await mount();
+    await openMeal();
+    for (let i = 0; i < 3; i++) {
+      await click("2초 발성 녹음 시작");
+      await advance(2000);
+      expect(screen.getByText("목소리를 녹음하고 있어요")).toBeTruthy();
+      await advance(1000);
+    }
+    expect(screen.queryByText(/기준 음성 [123]\/3/)).toBeNull();
+    expect(screen.queryByText("녹음 처리 중…")).toBeNull();
+    expect(screen.getByRole("button", { name: "방금 삼켰어요" }).getAttribute("aria-disabled")).not.toBe("true");
+  });
+
+  it("PCM이 1초뿐이면 완료로 처리하지 않고 같은 기준 단계에서 다시 녹음한다", async () => {
+    mocks.pcm = sineWav().slice(44, 64044);
+    await mount();
+    await openMeal();
+    await click("2초 발성 녹음 시작");
+    await advance(6000);
+    expect(screen.getByText("기준 음성 1/3")).toBeTruthy();
+    expect(screen.getByText(/실제 음성이 2초 이상/)).toBeTruthy();
+    expect(screen.getByRole("button", { name: "2초 발성 녹음 시작" }).getAttribute("aria-disabled")).not.toBe("true");
   });
 
   it("기존 사용자와 기록을 한 번 초기화하고 새 가입 정보는 다시 지우지 않는다", async () => {

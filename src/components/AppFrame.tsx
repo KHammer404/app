@@ -87,6 +87,7 @@ function SessionModal() {
           <T style={[s.caption, s.center]}>
             입안을 비운 뒤 2초 동안 아~ 소리를 내주세요.
           </T>
+          {!!app.reasonText && <T style={[s.caption, s.center]}>{app.reasonText}</T>}
           {app.learning && (
             <T style={[s.caption, s.center]}>개인 기준으로 비교해요.</T>
           )}
