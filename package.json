@@ -38,9 +38,10 @@
     "vitest": "^5.0.5"
   },
   "scripts": {
-    "start": "expo start",
+    "start": "expo start --lan --dev-client",
     "android": "expo run:android",
-    "ios": "expo run:ios",
+    "ios": "EXPO_USE_PRECOMPILED_MODULES=0 expo run:ios --device",
+    "ios:release": "EXPO_USE_PRECOMPILED_MODULES=0 EXPO_PUBLIC_ANALYSIS_MODE=device expo run:ios --device --configuration Release",
     "web": "expo start --web",
     "typecheck": "tsc --noEmit",
     "build:web": "expo export --platform web",

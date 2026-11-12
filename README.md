@@ -21,7 +21,12 @@ python scripts/prepare_vision.py
 npm run android
 ```
 
-Mac에서 iPhone은 `python3 scripts/prepare_vision.py --ios` 이후 `npm run ios -- --device`로 빌드합니다. 자동 카메라 파이프라인에는 Expo Go가 아닌 개발 빌드가 필요합니다.
+Mac에서 iPhone:
+
+- 오늘처럼 화면 보면서 고칠 때: `python3 scripts/prepare_vision.py --ios` 후 `npm run ios`(네이티브)와 `npm start`(같은 Wi‑Fi의 Metro). Debug 앱은 맥 서버가 필요합니다.
+- 부스처럼 폰만으로 켤 때: `npm run ios:release`. JS·카메라 모듈이 앱 안에 들어가서 노트북이 없어도 됩니다. UX를 고친 뒤에는 이 명령을 다시 실행해야 시연 앱에 반영됩니다.
+
+자동 카메라 파이프라인에는 Expo Go가 아닌 이 개발/릴리스 빌드가 필요합니다.
 
 브라우저 UI는 `npm run web`으로 확인할 수 있습니다. 웹에는 네이티브 MediaPipe/OpenCV 모듈이 없어 자동 카메라 감지를 제공하지 않습니다.
 

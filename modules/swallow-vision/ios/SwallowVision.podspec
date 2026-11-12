@@ -13,10 +13,17 @@ Pod::Spec.new do |s|
   s.source_files = '*.{h,mm,swift}'
   s.public_header_files = 'SKMotionAnalyzer.h'
   s.resource_bundles = { 'SwallowVisionModels' => ['Resources/*.task'] }
-  s.vendored_frameworks = File.exist?(File.join(__dir__, 'Frameworks/opencv2.xcframework')) ? 'Frameworks/opencv2.xcframework' : 'Frameworks/opencv2.framework'
+  # Headers only (OpenCV 4.5.3). MediaPipeTasksCommon already links that OpenCV
+  # binary; vendoring opencv2.framework duplicates ObjC (Mat, Point, …).
+  s.preserve_paths = 'Frameworks/opencv2.framework'
   s.dependency 'ExpoModulesCore'
   s.dependency 'MediaPipeTasksVision', '0.10.21'
   s.frameworks = 'UIKit', 'Accelerate', 'AVFoundation', 'CoreMedia', 'CoreVideo'
   s.libraries = 'c++'
-  s.pod_target_xcconfig = { 'DEFINES_MODULE' => 'YES', 'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17' }
+  s.pod_target_xcconfig = {
+    'DEFINES_MODULE' => 'YES',
+    'CLANG_CXX_LANGUAGE_STANDARD' => 'c++17',
+    'FRAMEWORK_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/Frameworks"',
+    'HEADER_SEARCH_PATHS' => '"${PODS_TARGET_SRCROOT}/Frameworks/opencv2.framework/Headers"'
+  }
 end

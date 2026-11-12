@@ -45,7 +45,8 @@
         }
       ],
       "expo-router",
-      "expo-font"
+      "expo-font",
+      "./plugins/with-precompiled-modules-off.js"
     ],
     "scheme": "samkim-keepr"
   }
