@@ -33,6 +33,13 @@ describe("device audio processing", () => {
     expect(() => encodePcmWav([], 32000, 1)).toThrow("INVALID_AUDIO_FORMAT");
     expect(() => encodePcmWav([new Uint8Array(3)], 32000, 2)).toThrow("INVALID_AUDIO_FORMAT");
   });
+  it("accepts sustained low-gain vowels while rejecting silence and near-silent input", () => {
+    const quiet = extractFeatures(wav(200, .008));
+    expect(quiet.voicedSeconds).toBeCloseTo(2);
+    expect(quiet.reasons).toEqual([]);
+    expect(extractFeatures(wav(200, 0)).reasons).toContain("TOO_QUIET");
+    expect(extractFeatures(wav(200, .001)).reasons).toContain("TOO_QUIET");
+  });
   it("round trips a complex FFT and rejects invalid sizes", () => {
     const re = Float64Array.of(1, 2, -3, 4, 5, -6, 7, 8), im = new Float64Array(8), expected = re.slice();
     transform(re, im); transform(re, im, true);

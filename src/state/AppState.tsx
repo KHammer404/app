@@ -11,7 +11,7 @@ import { router, usePathname } from "expo-router";
 import AsyncStorage from "@react-native-async-storage/async-storage";
 import { useCameraPermissions } from "expo-camera";
 
-import { api, assetUrl, isDeviceAnalysis, REASON_TEXT, SLOT_MEAL, socketUrl, type SessionReport } from "../api/client";
+import { api, assetUrl, isDeviceAnalysis, recordingReasonText, SLOT_MEAL, socketUrl, type SessionReport } from "../api/client";
 import {
   CAREGIVER_KEY,
   DEFAULT_CAREGIVER,
@@ -266,7 +266,7 @@ function useAppController() {
     if (applied.current.has(token)) return;
     applied.current.add(token);
     if (applied.current.size > 256) applied.current.delete(applied.current.values().next().value!);
-    const reason = (result.reason_codes ?? []).map((code) => REASON_TEXT[code] ?? code).join(" ");
+    const reason = recordingReasonText(result.reason_codes ?? []);
     setReasonText(reason);
     if (result.profile_learning) setLearning(true);
     if (result.state === "no_change") {
@@ -370,7 +370,7 @@ function useAppController() {
           if (!baseline.stable) {
             setPopup("baseline");
             setVoiceSeconds(0);
-            setReasonText(baseline.reason_codes.map((code) => REASON_TEXT[code] ?? code).join(" ") ||
+            setReasonText(recordingReasonText(baseline.reason_codes) ||
               "세 번의 아~를 일정한 크기로 다시 녹음해 주세요.");
           }
         } catch {

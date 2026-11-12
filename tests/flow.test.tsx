@@ -520,6 +520,21 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     expect(screen.queryByText(/기준 음성 [123]\/3/)).toBeNull();
     expect(screen.queryByText("녹음 처리 중…")).toBeNull();
     expect(screen.getByRole("button", { name: "방금 삼켰어요" }).getAttribute("aria-disabled")).not.toBe("true");
+    await finish();
+  });
+
+  it("작지만 지속적인 기준 발성도 기기 분석을 통과한다", async () => {
+    vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "device");
+    mocks.storage.set("@samkim/device-analysis/v1", JSON.stringify({ version: 1, consent: true, sessions: [] }));
+    mocks.pcm = sineWav(200, .008).slice(44);
+    await mount();
+    await start();
+    expect(screen.queryByText(/기준 음성 [123]\/3/)).toBeNull();
+    await click("방금 삼켰어요");
+    await advance(2000);
+    expect(screen.getByText("기준 음성과 큰 차이가 없어요")).toBeTruthy();
+    await click("확인");
+    await finish();
   });
 
   it("PCM이 1초뿐이면 완료로 처리하지 않고 같은 기준 단계에서 다시 녹음한다", async () => {

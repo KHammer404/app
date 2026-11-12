@@ -273,10 +273,17 @@ export const REASON_TEXT: Record<string, string> = {
   TOO_QUIET: "조금 더 크게 아~ 해주세요.",
   CLIPPING: "소리가 너무 커요. 마이크에서 조금만 떨어져 주세요.",
   LOW_SNR: "주변이 시끄러워요. 조용한 곳에서 다시 해주세요.",
-  NOT_SUSTAINED_VOWEL: "말하기나 기침이 섞였어요. 아~만 내주세요.",
+  NOT_SUSTAINED_VOWEL: "지속적인 아~ 발성을 충분히 확인하지 못했어요. 같은 자세로 다시 녹음해 주세요.",
   DECODE_FAILED: "녹음 파일을 읽지 못했어요. 다시 해주세요.",
   BASELINE_TOO_FEW: "기준 음성이 부족해요. 세 번 다시 녹음해 주세요.",
   BASELINE_UNSTABLE: "세 번의 목소리가 서로 달라요. 같은 크기로 다시 해주세요.",
   LEVEL_SHIFT: "목소리 크기가 기준과 달라요. 자리를 유지한 채 기준을 다시 녹음해 주세요.",
   NOISE_FLOOR_SHIFT: "주변 소음이 기준과 달라요. 조용한 곳에서 기준을 다시 녹음해 주세요.",
 };
+
+/** Low input level can cause all three quality checks to fail at once. */
+export function recordingReasonText(codes: string[]) {
+  if (codes.includes("TOO_QUIET")) return "마이크에 들어온 소리가 작아요. 마이크를 가리지 않았는지 확인하고, 조금 더 가까이에서 편안하게 아~ 해주세요.";
+  const specific = [...new Set(codes)].filter((code) => code !== "BASELINE_TOO_FEW");
+  return (specific.length ? specific : codes).map((code) => REASON_TEXT[code] ?? code).join(" ");
+}

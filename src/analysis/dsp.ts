@@ -2,8 +2,11 @@
  * Versioned separately from the server's 640-point FFT pipeline: thresholds must
  * be calibrated for this implementation before claiming clinical performance.
  */
-export const FEATURE_VERSION = "device-mel128-fft1024-v1";
+export const FEATURE_VERSION = "device-mel128-fft1024-v2";
 const RATE = 32000, WINDOW = 640, HOP = 320, FFT = 1024, MELS = 128;
+// Engineering input floor, not an aspiration threshold. Periodicity, duration,
+// clipping and SNR checks still apply; microphone gain is not voice quality.
+const MIN_RMS = 0.003;
 
 export type Features = {
   embedding: number[];
@@ -203,19 +206,21 @@ export function extractFeatures(bytes: Uint8Array, baseline?: Pick<Features, "in
   const decoded = decodeWav(bytes), input = resample(decoded.samples, decoded.rate);
   const energies: number[] = [];
   for (let start = 0; start + WINDOW <= input.length; start += WINDOW) energies.push(rms(input, start, start + WINDOW));
-  const first = energies.findIndex((value) => value >= 0.02), onset = Math.max(0, first) * WINDOW;
+  const sorted = [...energies].sort((a, b) => a - b);
+  const reference = sorted[Math.floor(sorted.length * 0.9)] ?? 0;
+  const activityFloor = Math.max(MIN_RMS, reference * 0.15);
+  const first = energies.findIndex((value) => value >= activityFloor), onset = Math.max(0, first) * WINDOW;
   const raw = input.subarray(onset, onset + RATE * 2), segment = new Float32Array(RATE * 2);
   segment.set(raw);
-  const voicedSeconds = energies.slice(Math.max(0, first), Math.max(0, first) + 100).filter((value) => value >= 0.02).length * 0.02;
+  const voicedSeconds = energies.slice(Math.max(0, first), Math.max(0, first) + 100).filter((value) => value >= activityFloor).length * 0.02;
   const level = rms(raw), inputDb = db(level);
-  const sorted = [...energies].sort((a, b) => a - b);
   const noise = onset >= WINDOW ? rms(input, 0, onset) : (sorted[Math.floor(sorted.length * 0.2)] ?? 0);
   const noiseDb = db(noise), snr = onset >= WINDOW ? inputDb - noiseDb : 40;
   const clipping = raw.reduce((count, value) => count + (Math.abs(value) >= 0.99 ? 1 : 0), 0) / Math.max(1, raw.length);
   const pitch = pitchQuality(segment, raw.length);
   const reasons: string[] = [], warnings: string[] = [];
   if (voicedSeconds < 0.5) reasons.push("VOICED_TOO_SHORT");
-  if (level < 0.02) reasons.push("TOO_QUIET");
+  if (level < MIN_RMS) reasons.push("TOO_QUIET");
   if (clipping > 0.01) reasons.push("CLIPPING");
   if (snr < 6) reasons.push("LOW_SNR");
   if (pitch.ratio < 0.55 || pitch.cv > 0.25) reasons.push("NOT_SUSTAINED_VOWEL");
