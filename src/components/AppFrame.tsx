@@ -163,7 +163,7 @@ function SessionModal() {
           </View>
           <T style={[s.modalTitle, { color: TEAL }]}>기준 음성과 큰 차이가 없어요</T>
           <T style={[s.caption, s.center]}>
-            이번 녹음에서 큰 음성 변화가 관찰되지 않았어요. 이 결과는 흡인이 없거나 삼킴이 안전하다는 뜻은 아니에요.
+            이번 녹음에서 큰 음성 변화가 관찰되지 않았어요. 어디까지나 음성에 근거한 추정이며, 흡인이 없거나 삼킴이 안전하다는 뜻은 아니에요. 불안하다면 식사를 잠시 멈추고 헛기침을 몇 번 해보세요.
           </T>
           <Button compact title="확인" onPress={() => app.setPopup(null)} />
         </>
@@ -175,7 +175,7 @@ function SessionModal() {
           </View>
           <T style={[s.modalTitle, { color: RED }]}>목소리 변화가 반복됐어요</T>
           <T style={[s.modalTitle, { color: RED, fontSize: 20 }]}>
-            식사를 잠시 멈추고 상태를 확인해 주세요. 음성 변화만으로 흡인 여부를 알 수는 없어요.
+            흡인 위험 추정 결과예요. 식사를 잠시 멈추고 기침을 해보세요. 음성 변화만으로 흡인 여부를 확정할 수는 없어요. 증상이 계속되면 보호자나 의료진에게 도움을 요청하세요.
           </T>
           <Button title="상태를 확인했어요" danger onPress={() => void app.resolveCaution()} />
         </>
