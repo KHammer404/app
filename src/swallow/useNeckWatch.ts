@@ -65,6 +65,27 @@ export function useNeckWatch(
       if (bundled.model) watch = new TemporalWatch(validateModel(bundled.model));
     } catch { /* Invalid or untrained weights must never produce candidates. */ }
     const classifierNotice = !watch ? "자동 감지는 아직 준비 중이에요. 주기적으로 발성을 확인해요" : null;
+    // Only presentation is delayed. Tracking resets and voice checks still run
+    // immediately, including during short losses that do not change the label.
+    let displayed = !nativeVision
+      ? "자동 감지에는 전용 앱 빌드가 필요해요. 주기적으로 발성을 확인해요"
+      : classifierNotice;
+    let candidate = displayed;
+    let candidateSince = Date.now();
+    let displayedSince = Date.now() - 2000;
+    const initialHint = displayed;
+    const resetHint = setTimeout(() => { if (!stopped) setHint(initialHint); }, 0);
+    const publishHint = (next: string | null) => {
+      if (stopped) return;
+      const now = Date.now();
+      if (next === displayed) { candidate = next; candidateSince = now; return; }
+      if (next !== candidate) { candidate = next; candidateSince = now; return; }
+      const delay = next === classifierNotice || next === null ? 1000 : 1500;
+      if (now - candidateSince < delay || now - displayedSince < 2000) return;
+      displayed = next;
+      displayedSince = now;
+      setHint(next);
+    };
     if (nativeVision) void nativeVision.resetAsync().catch(() => {});
     const requestPeriodic = () => {
       if (Date.now() - lastPeriodic >= periodicMs) {
@@ -75,7 +96,7 @@ export function useNeckWatch(
     const timer = setInterval(() => {
       if (stopped || busy) return;
       if (!nativeVision) {
-        setHint("자동 감지에는 전용 앱 빌드가 필요해요. 주기적으로 발성을 확인해요");
+        publishHint("자동 감지에는 전용 앱 빌드가 필요해요. 주기적으로 발성을 확인해요");
         requestPeriodic();
         return;
       }
@@ -84,7 +105,7 @@ export function useNeckWatch(
       if (!watch) requestPeriodic();
       const camera = cameraRef.current;
       if (!camera || !canShoot(camera)) {
-        setHint(HINT.lost);
+        publishHint(HINT.lost);
         requestPeriodic();
         return;
       }
@@ -95,14 +116,14 @@ export function useNeckWatch(
           const picture = await shoot(camera);
           if (!picture) {
             watch?.reset();
-            setHint(HINT.lost);
+            publishHint(HINT.lost);
             requestPeriodic();
             return;
           }
           void discard(picture.uri);
           if (!picture.base64) {
             watch?.reset();
-            setHint(HINT.lost);
+            publishHint(HINT.lost);
             requestPeriodic();
             return;
           }
@@ -110,30 +131,30 @@ export function useNeckWatch(
           if (stopped) return;
           if (result.status === "lost") {
             watch?.reset();
-            setHint(HINT.lost);
+            publishHint(HINT.lost);
             requestPeriodic();
             return;
           }
           if (result.status === "turn") {
             watch?.reset();
-            setHint(HINT.turn);
+            publishHint(HINT.turn);
             requestPeriodic();
             return;
           }
-          if (result.status === "warming") { watch?.reset(); setHint(classifierNotice); return; }
+          if (result.status === "warming") { watch?.reset(); return; }
           const confidence = result.features ? watch?.push(result.features, result.timestamp) : null;
           if (confidence != null) {
             lastPeriodic = Date.now();
-            setHint(null);
+            publishHint(null);
             onSwallowRef.current("auto", confidence);
             return;
           }
-          setHint(classifierNotice);
+          publishHint(classifierNotice);
           requestPeriodic();
         } catch {
           if (stopped) return;
           watch?.reset();
-          setHint("카메라 분석을 사용할 수 없어 주기적으로 발성을 확인해요");
+          publishHint("카메라 분석을 사용할 수 없어 주기적으로 발성을 확인해요");
           requestPeriodic();
         } finally {
           busy = false;
@@ -143,6 +164,7 @@ export function useNeckWatch(
     return () => {
       stopped = true;
       clearInterval(timer);
+      clearTimeout(resetHint);
     };
   }, [cameraRef, enabled, periodicMs]);
   return enabled ? hint : null;

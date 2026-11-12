@@ -361,9 +361,11 @@ export function MonitorScreen() {
       </T>
       <View style={{ gap: 6, paddingHorizontal: 8 }}>
         <T style={[s.body, { textAlign: "center" }]}>· 카메라가 작동하고 있어요</T>
-        <T style={[s.body, { textAlign: "center" }]}>
-          · {hint ?? "얼굴과 목 영역을 추적하고 있어요"}
-        </T>
+        <View style={{ minHeight: 81, justifyContent: "center" }}>
+          <T accessibilityLiveRegion="polite" style={[s.body, { textAlign: "center" }]}>
+            · {hint ?? "얼굴과 목 영역을 추적하고 있어요"}
+          </T>
+        </View>
       </View>
       <View style={s.spacer} />
       <Pressable
