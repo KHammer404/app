@@ -2,10 +2,10 @@ import { StyleSheet } from "react-native";
 export const TEAL = "#278F9C",
   INK = "#151515",
   GRAY = "#737373",
-  BG = "#F7F7F7",
+  BG = "#FFFFFF",
   RED = "#E94849";
 export const s = StyleSheet.create({
-  outer: { flex: 1, backgroundColor: "#ECEFF0" },
+  outer: { flex: 1, backgroundColor: BG },
   app: {
     flex: 1,
     width: "100%",

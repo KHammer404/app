@@ -6,6 +6,7 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
+    "backgroundColor": "#FFFFFF",
     "ios": {
       "supportsTablet": true,
       "bundleIdentifier": "com.swallowkeeper.app"
@@ -46,6 +47,7 @@
       ],
       "expo-router",
       "expo-font",
+      "expo-system-ui",
       "./plugins/with-precompiled-modules-off.js"
     ],
     "scheme": "samkim-keepr"
