@@ -94,12 +94,14 @@ export function useNeckWatch(
           const timestamp = Date.now();
           const picture = await shoot(camera);
           if (!picture) {
+            watch?.reset();
             setHint(HINT.lost);
             requestPeriodic();
             return;
           }
           void discard(picture.uri);
           if (!picture.base64) {
+            watch?.reset();
             setHint(HINT.lost);
             requestPeriodic();
             return;
@@ -121,11 +123,13 @@ export function useNeckWatch(
           if (result.status === "warming") { watch?.reset(); setHint(classifierNotice); return; }
           const confidence = result.features ? watch?.push(result.features, result.timestamp) : null;
           if (confidence != null) {
+            lastPeriodic = Date.now();
             setHint(null);
             onSwallowRef.current("auto", confidence);
             return;
           }
           setHint(classifierNotice);
+          requestPeriodic();
         } catch {
           if (stopped) return;
           watch?.reset();

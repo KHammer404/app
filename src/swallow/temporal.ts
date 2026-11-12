@@ -71,9 +71,14 @@ export class TemporalWatch {
     const window: number[][] = [];
     for (let i = 0; i < 16; i++) {
       const target = at - (15 - i) * 125;
-      const closest = this.history.reduce((a, b) => Math.abs(a.at - target) <= Math.abs(b.at - target) ? a : b);
-      if (Math.abs(closest.at - target) > 100) return null;
-      window.push(closest.features);
+      const right = this.history.findIndex((row) => row.at >= target);
+      if (right < 0) return null;
+      const after = this.history[right];
+      if (after.at === target) { window.push(after.features); continue; }
+      const before = this.history[right - 1];
+      if (!before || after.at - before.at > 250) return null;
+      const fraction = (target - before.at) / (after.at - before.at);
+      window.push(before.features.map((value, channel) => value + fraction * (after.features[channel] - value)));
     }
     const score = probability(this.model, window);
     if (score < this.model.threshold) return null;
