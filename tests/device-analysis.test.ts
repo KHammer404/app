@@ -112,6 +112,19 @@ describe("offline meal lifecycle", () => {
     await api.resolve(event.id);
     expect((await api.report(meal.id)).session.caution_count).toBe(1);
   });
+  it("does not smooth away a new change or carry it into an unchanged recheck", async () => {
+    const { api } = setup();
+    await api.consent("voice_analysis", true);
+    const meal = await api.startSession("점심");
+    await api.baseline(meal.id, [clip(), clip(), clip()]);
+    const first = await api.swallow(meal.id, "manual");
+    expect((await api.voice(first.id, clip())).state).toBe("no_change");
+    const changed = await api.swallow(meal.id, "manual");
+    expect((await api.voice(changed.id, clip(380))).state).toBe("recheck");
+    const recovered = await api.voice(changed.id, clip());
+    expect(recovered.state).toBe("no_change");
+    expect(recovered.change_score).toBeCloseTo(0);
+  });
   it("restores history after restart, ends interrupted sessions and deletes data", async () => {
     const { api, storage } = setup();
     await api.consent("voice_analysis", true);

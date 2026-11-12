@@ -21,7 +21,7 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
   let loading: Promise<Database> | null = null;
   let serial: Promise<unknown> = Promise.resolve();
   let counter = 0;
-  const baselines = new Map<string, Features>();
+  const baselines = new Map<string, Features & { spread: number }>();
   const id = () => `device-${now().toString(36)}-${(++counter).toString(36)}-${Math.random().toString(36).slice(2, 10)}`;
   async function load() {
     if (database) return database;
@@ -133,7 +133,7 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
           const spread = Math.sqrt(usable.reduce((sum, row) => sum + distance(row.embedding, embedding) ** 2, 0) / usable.length);
           if (spread > 0.12) reasons.push("BASELINE_UNSTABLE");
           if (!reasons.length) {
-            baselines.set(sid, { ...usable[0], embedding,
+            baselines.set(sid, { ...usable[0], embedding, spread,
               mfcc: usable[0].mfcc.map((_, i) => median(usable.map((row) => row.mfcc[i]))),
               cpp: median(usable.map((row) => row.cpp)), inputDb: median(usable.map((row) => row.inputDb)), noiseDb: median(usable.map((row) => row.noiseDb)) });
           }
@@ -185,8 +185,9 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
           else { event.state = "unanalyzable"; event.deadline = now() + 10000; }
           return output(meal, event, reasons, current.warnings);
         }
-        const raw = distance(current.embedding, baseline.embedding) / 0.04;
-        const score = meal.score == null ? raw : 0.5 * raw + 0.5 * meal.score;
+        const raw = distance(current.embedding, baseline.embedding) / Math.max(0.04, baseline.spread);
+        // A single large change must not be diluted by earlier unchanged swallows.
+        const score = raw;
         const wasRecheck = meal.summary.phase === "RECHECK";
         meal.score = score;
         event.acoustic = { mfcc_l2: distance(current.mfcc, baseline.mfcc), cpp_delta: current.cpp - baseline.cpp };
