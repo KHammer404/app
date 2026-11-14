@@ -5,7 +5,11 @@ import { CameraView } from "expo-camera";
 import { Page } from "../components/AppFrame";
 import MotionPressable from "../components/MotionPressable";
 import AspirationTimeline from "../components/AspirationTimeline";
-import { useNeckWatch } from "../swallow/useNeckWatch";
+import { useNeckWatch, type Shutter } from "../swallow/useNeckWatch";
+import type { NativeMotion } from "../swallow/native";
+import CameraTrackingOverlay from "../components/CameraTrackingOverlay";
+import VoiceAnalysisReport from "../components/VoiceAnalysisReport";
+import { useRemoteSwallow } from "../remote/useRemoteSwallow";
 import { timelineDuration } from "../utils/mealTimeline";
 import { Button, Check, Empty, Icon, IconName, T } from "../components/UI";
 import { GRAY, RED, s, TEAL } from "../components/theme";
@@ -252,24 +256,37 @@ function Permission({
 }
 function Preview({
   shutter,
+  motion,
 }: {
-  shutter?: { current: { takePictureAsync?: (options: object) => Promise<unknown>; getAvailablePictureSizesAsync?: () => Promise<string[]> } | null };
+  shutter?: { current: Shutter | null };
+  motion?: NativeMotion | null;
 }) {
   const app = useApp();
   const [pictureSize, setPictureSize] = useState<string | undefined>();
+  const [showTracking, setShowTracking] = useState(false);
+  const [size, setSize] = useState({ width: 0, height: 0 });
+  const [localMotion, setLocalMotion] = useState<NativeMotion | null>(null);
+  const localShutter = useRef<Shutter | null>(null);
+  const cameraRef = shutter ?? localShutter;
+  const previewHint = useNeckWatch(cameraRef, !shutter && showTracking && app.active && !!app.cameraPermission?.granted,
+    () => {}, Infinity, setLocalMotion);
   return (
-    <View style={s.camera}>
+    <View style={s.camera} onLayout={(event) => {
+      const { width, height } = event.nativeEvent.layout;
+      setSize({ width, height });
+    }}>
       {app.cameraPermission?.granted && app.active ? (
         <CameraView
-          ref={shutter as never}
+          ref={cameraRef as never}
           style={{ position: "absolute", top: 0, left: 0, right: 0, bottom: 0 }}
           facing="front"
+          mirror
           mode="picture"
           animateShutter={false}
           pictureSize={pictureSize}
           onCameraReady={() => {
             app.setCameraReady(true);
-            const camera = shutter?.current;
+            const camera = cameraRef.current;
             void camera?.getAvailablePictureSizesAsync?.().then((sizes) => {
               const ranked = sizes
                 .map((size) => {
@@ -295,6 +312,27 @@ function Preview({
           <T style={s.cameraLabel}>카메라 미리보기</T>
         </>
       )}
+      {app.cameraPermission?.granted && app.active && <>
+        {showTracking && <CameraTrackingOverlay motion={shutter ? motion ?? null : localMotion}
+          width={size.width} height={size.height} />}
+        <Pressable style={{ position: "absolute", top: 0, right: 0, bottom: 0, left: 0 }}
+          accessible={false} delayLongPress={600} onLongPress={() => setShowTracking((value) => !value)} />
+        <Pressable accessibilityRole="button" accessibilityLabel="추적 표시"
+          accessibilityState={{ selected: showTracking }}
+          onPress={() => setShowTracking((value) => !value)}
+          style={{ position: "absolute", right: 10, top: 10, paddingHorizontal: 12, paddingVertical: 10,
+            borderRadius: 20, backgroundColor: showTracking ? "#12665BEF" : "#000A", minHeight: 44 }}>
+          <T style={{ color: "white", fontSize: 13 }}>추적 표시 {showTracking ? "켜짐" : "꺼짐"}</T>
+        </Pressable>
+        {showTracking && <View pointerEvents="none" style={{ position: "absolute", left: 8, right: 8, bottom: 8,
+          padding: 7, borderRadius: 6, backgroundColor: "#000A" }}>
+          <T style={{ color: "white", fontSize: 12, textAlign: "center" }}>
+            {!shutter && !localMotion?.overlay
+              ? previewHint?.includes("사용할 수 없어") ? "카메라 추적을 연결하지 못했어요" : "얼굴과 목이 모두 보이도록 맞춰 주세요"
+              : "얼굴 윤곽 · 목 3영역 · 움직임 방향"}
+          </T>
+        </View>}
+      </>}
     </View>
   );
 }
@@ -338,14 +376,18 @@ export function CameraScreen() {
 }
 export function MonitorScreen() {
   const app = useApp();
-  const shutter = useRef(null);
+  const shutter = useRef<Shutter | null>(null);
+  const [motion, setMotion] = useState<NativeMotion | null>(null);
+  const trackingActive = app.running && app.active && app.popup == null && !app.recording;
+  useRemoteSwallow(app.running, trackingActive && !app.busy, () => app.markSwallow("manual"));
   const hint = useNeckWatch(
     shutter,
-    app.running && app.active && app.popup == null && !app.recording,
+    trackingActive,
     (trigger, confidence) => {
       void app.markSwallow(trigger, confidence);
     },
     app.settings.periodicSeconds * 1000,
+    setMotion,
   );
   return (
     <Page>
@@ -355,7 +397,7 @@ export function MonitorScreen() {
         </T>
         <T style={s.timer}>{duration(app.seconds)}</T>
       </View>
-      <Preview shutter={shutter} />
+      <Preview shutter={shutter} motion={trackingActive ? motion : null} />
       <T style={s.cameraHelp}>
         식사를 편안하게 이어가세요.{"\n"}삼킴 동작이 감지되면 안내해 드릴게요.
       </T>
@@ -498,10 +540,11 @@ export function ReportScreen() {
       )}
       <View style={s.analysisCard}>
         <View style={s.between}>
-          <T style={s.body}>발성 녹음 완료</T>
+          <T style={s.body}>분석 완료한 발성</T>
           <T style={[s.bold, { color: TEAL }]}>{record.voices}회</T>
         </View>
       </View>
+      <VoiceAnalysisReport key={record.id} record={record} />
       <View style={s.spacer} />
       <Button title="홈으로 돌아가기" onPress={() => router.replace("/home")} />
     </Page>

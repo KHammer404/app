@@ -7,7 +7,7 @@ const KEY = "@samkim/device-analysis/v1";
 const DISCLAIMER = "개인 기준 대비 음성 변화 기록입니다. 흡인을 진단하지 않으며, 변화 없음은 흡인이 없다는 뜻이 아닙니다.";
 const SLOTS: Record<Meal, string> = { 아침: "breakfast", 점심: "lunch", 저녁: "dinner", 간식: "snack" };
 type Storage = Pick<typeof AsyncStorage, "getItem" | "setItem" | "removeItem">;
-type Event = SessionReport["events"][number] & { deadline: number | null; attempts: number; confidence?: number; acoustic?: { mfcc_l2: number; cpp_delta: number } };
+type Event = SessionReport["events"][number] & { deadline: number | null; attempts: number; confidence?: number };
 type DeviceSession = { summary: MealListItem; events: Event[]; open: string | null; baselineQuality: string | null; score: number | null; streak: number };
 type Database = { version: 1; consent: boolean; sessions: DeviceSession[] };
 const blank = (): Database => ({ version: 1, consent: false, sessions: [] });
@@ -81,7 +81,8 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
   }
   function output(meal: DeviceSession, event: Event, reasons: string[] = [], warnings: string[] = []): Analysis {
     return { result_id: id(), event_id: event.id, state: event.state ?? "unanalyzable", phase: meal.summary.phase, reason_codes: reasons,
-      warnings, message_key: event.state ?? "unanalyzable", profile_learning: true, change_score: meal.score };
+      warnings, message_key: event.state ?? "unanalyzable", profile_learning: true,
+      change_score: ["no_change", "recheck", "caution"].includes(event.state ?? "") ? event.measurements?.at(-1)?.change_score ?? null : null };
   }
   function summary(meal: DeviceSession): MealListItem {
     return { ...meal.summary,
@@ -183,6 +184,8 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
           event.attempts++; event.reason_codes = reasons;
           if (event.attempts >= 3) terminal(meal, event, "skipped");
           else { event.state = "unanalyzable"; event.deadline = now() + 10000; }
+          (event.measurements ??= []).push({ id: id(), recorded_at: new Date(now()).toISOString(),
+            state: event.state!, change_score: null, reason_codes: [...reasons] });
           return output(meal, event, reasons, current.warnings);
         }
         const raw = distance(current.embedding, baseline.embedding) / Math.max(0.04, baseline.spread);
@@ -194,6 +197,8 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
         if (score >= 3) { event.state = wasRecheck ? "caution" : "recheck"; meal.streak = 0; }
         else if (score >= 1) { meal.streak++; event.state = meal.streak >= 2 ? "recheck" : "no_change"; if (event.state === "recheck") meal.streak = 0; }
         else { event.state = "no_change"; meal.streak = 0; }
+        (event.measurements ??= []).push({ id: id(), recorded_at: new Date(now()).toISOString(),
+          state: event.state, change_score: score, reason_codes: [], acoustic: { ...event.acoustic } });
         event.reason_codes = [];
         if (event.state === "caution") { meal.summary.phase = "AWAITING_RESOLVE"; event.deadline = null; }
         else if (event.state === "recheck") { meal.summary.phase = "RECHECK"; event.deadline = now() + 10000; }
@@ -239,7 +244,10 @@ export function createDeviceApi(storage: Storage, now = () => Date.now()) {
         unanalyzable_count: meal.events.filter((row) => row.state === "unanalyzable").length,
         skipped_count: meal.events.filter((row) => row.state === "skipped").length,
         no_response_count: meal.events.filter((row) => row.state === "no_response").length,
-        events: meal.events.map((row) => ({ ...row, reason_codes: [...row.reason_codes] })), disclaimer: DISCLAIMER };
+        events: meal.events.map((row) => ({ ...row, reason_codes: [...row.reason_codes],
+          acoustic: row.acoustic ? { ...row.acoustic } : undefined,
+          measurements: row.measurements?.map((item) => ({ ...item, reason_codes: [...item.reason_codes],
+            acoustic: item.acoustic ? { ...item.acoustic } : undefined })) })), disclaimer: DISCLAIMER };
     },
     async home() {
       const rows = await api.sessions();

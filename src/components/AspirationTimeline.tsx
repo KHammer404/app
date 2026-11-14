@@ -18,6 +18,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
   const [selectedId, setSelectedId] = useState(events[0]?.id);
   const [railWidth, setRailWidth] = useState(0);
   const selected = events.find((event) => event.id === selectedId) ?? events[0];
+  const noAnalysis = record.voices === 0 && record.alerts === 0;
   const start = new Date(record.date),
     end = new Date(start.getTime() + totalMs);
   const selectedTime = selected
@@ -38,8 +39,8 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
         <T accessibilityRole="header" style={styles.heading}>
           주의 신호 분석 결과
         </T>
-        <View style={[styles.count, record.alerts === 0 && styles.noAlerts]}>
-          <T style={[styles.countText, record.alerts === 0 && { color: TEAL }]}>
+        <View style={[styles.count, record.alerts === 0 && styles.noAlerts, noAnalysis && { backgroundColor: "#EEEEEE" }]}>
+          <T style={[styles.countText, record.alerts === 0 && { color: noAnalysis ? "#666666" : TEAL }]}>
             {record.alerts}회
           </T>
         </View>
@@ -129,7 +130,7 @@ export default function AspirationTimeline({ record }: { record: MealRecord }) {
               size={18}
             />
             <T style={styles.emptyText}>
-              {record.alerts > 0 ? "알림 시각 미기록" : "주의 신호 없음"}
+              {record.alerts > 0 ? "알림 시각 미기록" : noAnalysis ? "분석 완료 기록 없음" : "완료된 분석에서 주의 신호 없음"}
             </T>
           </View>
         )}

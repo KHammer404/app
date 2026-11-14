@@ -1,9 +1,9 @@
 import { useEffect, useRef, useState } from "react";
 import bundled from "../../assets/models/swallow-tcn.json";
-import { nativeVision } from "./native";
+import { nativeVision, type NativeMotion } from "./native";
 import { TemporalWatch, validateModel } from "./temporal";
 
-type Shutter = {
+export type Shutter = {
   takePicture?: (options: PictureOptions) => Promise<Shot>;
   takePictureAsync?: (options: PictureOptions) => Promise<Shot>;
   getAvailablePictureSizesAsync?: () => Promise<string[]>;
@@ -49,17 +49,22 @@ export function useNeckWatch(
   enabled: boolean,
   onSwallow: (trigger: "auto" | "periodic", confidence?: number) => void,
   periodicMs = 20000,
+  onFrame?: (frame: NativeMotion | null) => void,
 ) {
   const [hint, setHint] = useState<string | null>(null);
   const onSwallowRef = useRef(onSwallow);
+  const onFrameRef = useRef(onFrame);
   useEffect(() => {
     onSwallowRef.current = onSwallow;
-  }, [onSwallow]);
+    onFrameRef.current = onFrame;
+  }, [onSwallow, onFrame]);
   useEffect(() => {
     if (!enabled) return;
     let stopped = false;
     let lastPeriodic = Date.now();
     let busy = false;
+    let lastFrame = 0;
+    let lastError = "";
     let watch: TemporalWatch | null = null;
     try {
       if (bundled.model) watch = new TemporalWatch(validateModel(bundled.model));
@@ -94,6 +99,10 @@ export function useNeckWatch(
       }
     };
     const timer = setInterval(() => {
+      if (lastFrame && Date.now() - lastFrame > 700) {
+        lastFrame = 0;
+        onFrameRef.current?.(null);
+      }
       if (stopped || busy) return;
       if (!nativeVision) {
         publishHint("자동 감지에는 전용 앱 빌드가 필요해요. 주기적으로 발성을 확인해요");
@@ -115,6 +124,7 @@ export function useNeckWatch(
           const timestamp = Date.now();
           const picture = await shoot(camera);
           if (!picture) {
+            onFrameRef.current?.(null);
             watch?.reset();
             publishHint(HINT.lost);
             requestPeriodic();
@@ -122,6 +132,7 @@ export function useNeckWatch(
           }
           void discard(picture.uri);
           if (!picture.base64) {
+            onFrameRef.current?.(null);
             watch?.reset();
             publishHint(HINT.lost);
             requestPeriodic();
@@ -129,6 +140,8 @@ export function useNeckWatch(
           }
           const result = await nativeVision!.analyzeFrameAsync(picture.base64, timestamp);
           if (stopped) return;
+          lastFrame = Date.now();
+          onFrameRef.current?.(result);
           if (result.status === "lost") {
             watch?.reset();
             publishHint(HINT.lost);
@@ -151,8 +164,12 @@ export function useNeckWatch(
           }
           publishHint(classifierNotice);
           requestPeriodic();
-        } catch {
+        } catch (error) {
           if (stopped) return;
+          onFrameRef.current?.(null);
+          const message = error instanceof Error ? error.message : String(error);
+          if (message !== lastError) console.warn("SwallowVision:", message);
+          lastError = message;
           watch?.reset();
           publishHint("카메라 분석을 사용할 수 없어 주기적으로 발성을 확인해요");
           requestPeriodic();
@@ -165,6 +182,7 @@ export function useNeckWatch(
       stopped = true;
       clearInterval(timer);
       clearTimeout(resetHint);
+      onFrameRef.current?.(null);
     };
   }, [cameraRef, enabled, periodicMs]);
   return enabled ? hint : null;

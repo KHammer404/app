@@ -22,6 +22,11 @@ try {
   }
   $task = if ($Variant -eq 'release') { ':app:assembleRelease' } else { ':app:assembleDebug' }
   $arguments = @($task, '--console=plain', '--max-workers=2', '-Pandroid.cmakeVersion=3.31.6')
+  if ($Variant -eq 'release') {
+    # MediaPipe initialization failed in the minified APK on the tested phone.
+    # Keep the validated standalone build unminified; JS remains release-bundled.
+    $arguments += @('-Pandroid.enableMinifyInReleaseBuilds=false', '-Pandroid.enableShrinkResourcesInReleaseBuilds=false')
+  }
   if ($Architecture -ne 'all') { $arguments += "-PreactNativeArchitectures=$Architecture" }
   if ($UseGoogleCdn) { $arguments += @('-I', (Join-Path $PSScriptRoot 'android-google-cdn.init.gradle')) }
   Push-Location android

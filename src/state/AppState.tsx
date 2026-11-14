@@ -22,6 +22,7 @@ import {
 import { ensureMic, useWavCapture } from "../audio/recordWav";
 import { mealForTime, type Meal } from "../utils/mealTime";
 import type { AspirationEvent } from "../utils/mealTimeline";
+import { analyzedVoiceCount, voiceReportRows, type VoiceReportRow } from "../utils/voiceReport";
 
 export type { Meal } from "../utils/mealTime";
 export type MealRecord = {
@@ -39,6 +40,7 @@ export type MealRecord = {
   noResponse?: number;
   disclaimer?: string;
   spectrogramUrls?: string[];
+  voiceMeasurements?: VoiceReportRow[];
 };
 export type Popup =
   | "baseline"
@@ -86,16 +88,14 @@ function validRecord(value: unknown): value is MealRecord {
 function reportToRecord(report: SessionReport): MealRecord {
   const start = new Date(report.session.started_at).getTime();
   const caution = report.events.filter((event) => event.state === "caution");
-  const voiced = report.events.filter(
-    (event) => event.state && !["skipped", "no_response"].includes(event.state),
-  );
   return {
     id: report.session.id,
     meal: SLOT_MEAL[report.session.meal ?? ""] ?? "점심",
     date: report.session.started_at,
     seconds: Math.max(0, Math.round(report.session.duration_seconds)),
     alerts: report.session.caution_count,
-    voices: voiced.length,
+    voices: analyzedVoiceCount(report.events),
+    voiceMeasurements: voiceReportRows(report.events),
     durationMs: Math.max(0, report.session.duration_seconds * 1000),
     swallows: report.session.swallow_count,
     unanalyzable: report.unanalyzable_count,
@@ -546,14 +546,14 @@ function useAppController() {
     await startVoice();
   }
   async function markSwallow(trigger: "auto" | "manual" | "periodic" = "manual", confidence?: number) {
-    if (!sessionRef.current || popup === "baseline" || popup === "analyzing" || popup === "caution") return;
-    if (recordingRef.current) return;
+    if (!sessionRef.current || popup === "baseline" || popup === "analyzing" || popup === "caution") return false;
+    if (recordingRef.current) return false;
     const choice = voiceRequest(settingsRef.current, trigger, confidence, autoSeen.current);
     try {
       const event = await api.swallow(sessionRef.current, trigger, confidence, choice.request);
       if (!event.merged) autoSeen.current = choice.autoCount;
       setSwallows((value) => value + (event.merged || trigger === "periodic" ? 0 : 1));
-      if (!event.prompt) return;
+      if (!event.prompt) return !event.merged;
       eventRef.current = event.id;
       setPromptTrigger(trigger);
       modeRef.current = "voice";
@@ -564,8 +564,10 @@ function useAppController() {
         if (!mounted.current || recordingRef.current) return;
         setPopup((current) => (current === "voice" ? null : current));
       }, 10000);
+      return !event.merged;
     } catch (error) {
       notify("삼킴을 기록하지 못했어요", error instanceof Error ? error.message : "다시 시도해 주세요.");
+      return false;
     }
   }
   async function skipVoice() {

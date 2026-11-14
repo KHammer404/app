@@ -8,6 +8,7 @@ const vision = vi.hoisted(() => ({
 }));
 vi.mock("../src/swallow/native", () => ({ nativeVision: vision }));
 import { useNeckWatch } from "../src/swallow/useNeckWatch";
+import type { NativeMotion } from "../src/swallow/native";
 
 beforeEach(() => {
   vision.analyzeFrameAsync.mockImplementation(async (_base64: string, timestamp: number) => ({
@@ -72,4 +73,23 @@ it("resets the displayed status when monitoring resumes", async () => {
   rerender({ enabled: true });
   await act(async () => { await vi.advanceTimersByTimeAsync(0); });
   expect(result.current).toContain("자동 감지는 아직 준비 중");
+});
+
+it("publishes real tracking frames and clears the overlay when capture stalls or stops", async () => {
+  vi.useFakeTimers();
+  const onFrame = vi.fn();
+  const captured: NativeMotion & { features: number[] } = { status: "tracking", timestamp: 1, features: [0,0,0,0,0,0],
+    overlay: { width: 320, height: 480, landmarks: Array.from({ length: 478 }, () => [.5,.5]) } };
+  vision.analyzeFrameAsync.mockResolvedValue(captured);
+  const camera = { current: { takePictureAsync: vi.fn(async (): Promise<{ base64: string }> => ({ base64: "local-frame" })) } };
+  const { rerender, unmount } = renderHook(({ enabled }) =>
+    useNeckWatch(camera, enabled, vi.fn(), 20000, onFrame), { initialProps: { enabled: true } });
+  await act(async () => { await vi.advanceTimersByTimeAsync(250); });
+  expect(onFrame).toHaveBeenLastCalledWith(captured);
+  camera.current.takePictureAsync.mockImplementation(() => new Promise(() => {}));
+  await act(async () => { await vi.advanceTimersByTimeAsync(1000); });
+  expect(onFrame).toHaveBeenLastCalledWith(null);
+  rerender({ enabled: false });
+  expect(onFrame).toHaveBeenLastCalledWith(null);
+  unmount();
 });

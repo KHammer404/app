@@ -34,9 +34,11 @@ class SwallowVisionModule : Module() {
   }
 
   private fun reset() { previous?.release(); previous = null; lastTime = 0 }
-  private fun result(status: String, time: Long, features: List<Double>? = null): Map<String, Any> {
+  private fun result(status: String, time: Long, features: List<Double>? = null,
+    overlay: Map<String, Any>? = null): Map<String, Any> {
     val output = mutableMapOf<String, Any>("status" to status, "timestamp" to time.toDouble())
     if (features != null) output["features"] = features
+    if (overlay != null) output["overlay"] = overlay
     return output
   }
 
@@ -76,11 +78,13 @@ class SwallowVisionModule : Module() {
       val noseOffset = abs(face[1].x() * width - center) / max(fw, 1.0)
       if (fw < 32 || fh < 32 || top < 1 || chin + fh * 0.6 >= height || left < 1 || right >= width - 1) { reset(); return result("lost", time) }
       if (noseOffset > 0.22) { reset(); return result("turn", time) }
+      val overlay = mapOf<String, Any>("width" to width, "height" to height,
+        "landmarks" to face.map { listOf(it.x().toDouble(), it.y().toDouble()) })
       val old = previous
       val dt = (time - lastTime) / 1000.0
       if (old == null || old.size() != gray.size() || dt <= 0 || dt > 0.4) {
         previous?.release(); previous = gray.clone(); lastTime = time
-        return result("warming", time)
+        return result("warming", time, overlay = overlay)
       }
       fun rect(x0: Double, y0: Double, x1: Double, y1: Double) = Rect(
         max(1, floor(x0).toInt()), max(1, floor(y0).toInt()),
@@ -98,7 +102,7 @@ class SwallowVisionModule : Module() {
       val features = motions.map { -(it[1] - head[1]) * scale } +
         listOf(motions[0][2] * scale, mouth, -head[1] * scale)
       previous?.release(); previous = gray.clone(); lastTime = time
-      return result("tracking", time, features.map { it.coerceIn(-10.0, 10.0) })
+      return result("tracking", time, features.map { it.coerceIn(-10.0, 10.0) }, overlay)
     } finally {
       image.close(); rgba.release(); gray.release()
       if (bitmap !== source) bitmap.recycle()

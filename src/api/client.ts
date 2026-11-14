@@ -70,6 +70,15 @@ export type MealListItem = {
   no_change_count: number;
 };
 
+export type AcousticChange = { mfcc_l2: number; cpp_delta: number };
+export type VoiceMeasurement = {
+  id: string;
+  recorded_at: string;
+  state: string;
+  change_score: number | null;
+  reason_codes: string[];
+  acoustic?: AcousticChange;
+};
 export type ReportEvent = {
   id: string;
   detected_at: string;
@@ -79,6 +88,8 @@ export type ReportEvent = {
   reason_codes: string[];
   spectrogram_url: string | null;
   baseline_spectrogram_url: string | null;
+  acoustic?: AcousticChange;
+  measurements?: VoiceMeasurement[];
 };
 
 export type SessionReport = {

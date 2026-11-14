@@ -14,9 +14,19 @@ import { TrendScreen } from "../src/screens/TrendScreen";
 import { sineWav } from "./helpers/wav";
 import type { AudioStreamBuffer } from "expo-audio";
 vi.mock("../src/swallow/native", () => ({ nativeVision: null }));
+vi.mock("../src/remote/native", () => ({ nativeRemote: {
+  startAsync: async () => {}, stopAsync: async () => {}, setReadyAsync: async () => {},
+  completeAsync: (id: string, accepted: boolean) => mocks.remoteComplete(id, accepted),
+  addListener: (event: string, listener: unknown) => {
+    if (event === "onRemoteSwallow") mocks.remoteTrigger = listener as typeof mocks.remoteTrigger;
+    return { remove: () => { if (event === "onRemoteSwallow") mocks.remoteTrigger = null; } };
+  },
+} }));
 
 const mocks = vi.hoisted(() => ({
   storage: new Map<string, string>(),
+  remoteTrigger: null as null | ((event: { id: string }) => void),
+  remoteComplete: vi.fn(async (_id: string, _accepted: boolean) => {}),
   cameraGranted: true,
   microphoneGranted: true,
   pcm: new Uint8Array(100),
@@ -329,6 +339,29 @@ afterEach(() => {
   vi.useRealTimers();
 });
 describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)", () => {
+  it("PC 입력 한 번이 수동 삼킴 한 번과 녹음 창으로 이어지고 보고서에 저장된다", async () => {
+    vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "device");
+    mocks.storage.set("@samkim/device-analysis/v1", JSON.stringify({ version: 1, consent: true, sessions: [] }));
+    await mount();
+    await start();
+    expect(screen.queryByText("PC 리모컨 연결하기")).toBeNull();
+    await act(async () => { mocks.remoteTrigger!({ id: "pc-event-1" }); });
+    expect(screen.getByText("목소리를 녹음하고 있어요")).toBeTruthy();
+    expect(mocks.remoteComplete).toHaveBeenCalledWith("pc-event-1", true);
+    await act(async () => {
+      mocks.remoteTrigger!({ id: "pc-event-1" });
+      mocks.remoteTrigger!({ id: "pc-event-2" });
+    });
+    await advance(2000);
+    await click("확인");
+    await finish();
+    const report = JSON.parse(mocks.storage.get("@samkim/records")!)[0];
+    expect(report.swallows).toBe(1);
+    expect(report.voices).toBe(1);
+    const database = JSON.parse(mocks.storage.get("@samkim/device-analysis/v1")!);
+    expect(JSON.stringify(database)).toContain('"trigger":"manual"');
+    expect(mocks.remoteComplete).toHaveBeenCalledWith("pc-event-2", false);
+  });
   it("기본 기기 모드에서 가입부터 음성 비교와 보고서까지 네트워크 없이 실행한다", async () => {
     vi.stubEnv("EXPO_PUBLIC_ANALYSIS_MODE", "device");
     mocks.storage.delete("@samkim/profile");
@@ -351,6 +384,11 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     expect(fetch).not.toHaveBeenCalled();
     expect(socket).not.toHaveBeenCalled();
     expect(mocks.storage.get("@samkim/device-analysis/v1")).toContain('"no_change"');
+    expect(screen.getByRole("img", { name: /음성 변화 점수 그래프/ })).toBeTruthy();
+    expect(screen.getByText("변화 점수 0.00")).toBeTruthy();
+    const savedReport = JSON.parse(mocks.storage.get("@samkim/records")!)[0];
+    expect(savedReport.voiceMeasurements[0]).toMatchObject({ score: 0, state: "no_change" });
+    expect(savedReport.voiceMeasurements[0].acoustic).toHaveProperty("cpp_delta");
   });
   it("여러 알림을 실제 시간 비율에 배치하고 선택한 알림의 시각을 보여준다", async () => {
     mocks.storage.set(
@@ -417,7 +455,9 @@ describe("새 디자인의 모니터링·보고서 흐름 (장치 입력 모의)
     await start();
     await finish();
     expect(screen.getByText("식사 타임라인")).toBeTruthy();
-    expect(screen.getByText("주의 신호 없음")).toBeTruthy();
+    expect(screen.getByText("분석 완료 기록 없음")).toBeTruthy();
+    expect(screen.getByText("분석 완료한 발성이 없어 그래프를 표시할 수 없어요")).toBeTruthy();
+    expect(screen.queryByRole("img", { name: /음성 변화 점수 그래프/ })).toBeNull();
     expect(screen.queryByRole("button", { name: /주의 신호 1,/ })).toBeNull();
   });
 

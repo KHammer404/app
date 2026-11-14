@@ -57,6 +57,10 @@ public final class SwallowVisionModule: Module {
       return ["status": "lost", "timestamp": timestamp]
     }
     let landmarks = face.map { [NSNumber(value: $0.x), NSNumber(value: $0.y)] }
-    return motion.analyze(image: upright, landmarks: landmarks, timestamp: timestamp) as? [String: Any] ?? ["status": "lost", "timestamp": timestamp]
+    var output = motion.analyze(image: upright, landmarks: landmarks, timestamp: timestamp) as? [String: Any] ?? ["status": "lost", "timestamp": timestamp]
+    if let status = output["status"] as? String, status == "tracking" || status == "warming" {
+      output["overlay"] = ["width": size.width, "height": size.height, "landmarks": landmarks]
+    }
+    return output
   }
 }
